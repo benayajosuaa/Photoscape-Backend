@@ -1,0 +1,254 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ENUMS
+
+enum UserRole {
+  customer
+  admin
+  manager
+  owner
+}
+
+enum TicketStatus {
+  active
+  used
+  expired
+}
+
+enum BookingStatus {
+  pending
+  confirmed
+  completed
+  cancelled
+  expired
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  failed
+  expired
+}
+
+enum PaymentMethod {
+  qris
+  bca_va
+  mandiri_va
+  gopay
+  ovo
+  cash
+}
+
+enum StudioType {
+  K1
+  K2
+  PHOTO_BOX
+  SELF_PHOTO
+}
+
+// LOCATION
+
+model Location {
+  id   String @id @default(uuid())
+  name String
+
+  studios  Studio[]
+  bookings Booking[]
+}
+
+// USER
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String?
+  role      UserRole @default(customer)
+  createdAt DateTime @default(now())
+
+  bookings        Booking[]
+  createdBookings Booking[] @relation("CreatedBy")
+
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  scannedTickets Ticket[]
+}
+
+// STUDIO
+
+model Studio {
+  id       String     @id @default(uuid())
+  name     String
+  type     StudioType
+  capacity Int
+  isActive Boolean    @default(true)
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+
+  schedules Schedule[]
+}
+
+// PHOTO PACKAGE 
+model PhotoPackage {
+  id              String @id @default(uuid())
+  name            String
+  price           Float
+  durationMinutes Int
+  maxCapacity     Int
+
+  bookings Booking[]
+}
+
+// ADD-ONS
+model AddOn {
+  id    String @id @default(uuid())
+  name  String
+  price Float
+
+  bookingAddOns BookingAddOn[]
+}
+
+model BookingAddOn {
+  id        String @id @default(uuid())
+  bookingId String
+  addOnId   String
+  quantity  Int
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+  addOn   AddOn   @relation(fields: [addOnId], references: [id])
+
+  @@unique([bookingId, addOnId])
+}
+
+// SCHEDULE (TIME SLOT)
+model Schedule {
+  id        String   @id @default(uuid())
+  studioId  String
+  date      DateTime
+  startTime DateTime
+  endTime   DateTime
+
+  studio  Studio   @relation(fields: [studioId], references: [id])
+  booking Booking?
+
+  @@unique([studioId, date, startTime])
+}
+
+// BOOKING (CORE)
+model Booking {
+  id         String  @id @default(uuid())
+  userId     String?
+  scheduleId String  @unique
+  packageId  String
+  locationId String
+
+  bookingCode String   @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // customer data (IMPORTANT)
+  customerName  String
+  customerPhone String
+
+  participantCount Int
+  totalPrice       Float
+
+  status BookingStatus @default(pending)
+
+  createdBy String? // admin (walk-in)
+
+  user    User? @relation(fields: [userId], references: [id])
+  creator User? @relation("CreatedBy", fields: [createdBy], references: [id])
+
+  schedule Schedule     @relation(fields: [scheduleId], references: [id])
+  package  PhotoPackage @relation(fields: [packageId], references: [id])
+  location Location     @relation(fields: [locationId], references: [id])
+
+  payment Payment?
+
+  addOns BookingAddOn[]
+
+  auditLogs AuditLog[]
+  ticket    Ticket?
+}
+
+// TIKET
+model Ticket {
+  id        String @id @default(uuid())
+  bookingId String @unique
+
+  qrCode String @unique
+
+  status TicketStatus @default(active)
+
+  issuedAt  DateTime @default(now())
+  expiredAt DateTime
+
+  scannedAt DateTime?
+
+  scannedById String?
+  scannedBy   User?   @relation(fields: [scannedById], references: [id])
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+}
+
+// PAYMENT
+model Payment {
+  id        String @id @default(uuid())
+  bookingId String @unique
+
+  amount Float
+  method PaymentMethod
+  status PaymentStatus @default(pending)
+
+  gatewayReference String?
+  paidAt           DateTime?
+  expiredAt        DateTime?
+
+  createdAt DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+}
+
+// NOTIFICATION
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+// AUDIT LOG
+model AuditLog {
+  id     String  @id @default(uuid())
+  userId String?
+
+  action     String
+  entityType String
+  entityId   String
+
+  oldData Json?
+  newData Json?
+
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  bookingId String?
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+}
