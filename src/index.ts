@@ -1,8 +1,19 @@
 import express from "express";
-import type { Request, Response } from "express";
+import type { Request as ExpressRequest, Response as ExpressResponse } from "express";
 import dotenv from "dotenv";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  loginExpressController,
+  registerExpressController,
+  sendOtpExpressController,
+  verifyOtpExpressController,
+} from "./controller/auth.controller.js";
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const app = express();
 
@@ -11,7 +22,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // health check / root
-app.get("/", (req: Request, res: Response) => {
+app.get("/", (req: ExpressRequest, res: ExpressResponse) => {
   res.status(200).json({
     message: "halobenaya testing API",
     env: process.env.NODE_ENV || "development",
@@ -19,9 +30,14 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 // OPTIONAL: route example (biar scalable nanti)
-app.get("/api/test", (req: Request, res: Response) => {
+app.get("/api/test", (req: ExpressRequest, res: ExpressResponse) => {
   res.json({ success: true, message: "API working properly" });
 });
+
+app.post("/api/auth/register", registerExpressController);
+app.post("/api/auth/login", loginExpressController);
+app.post("/api/auth/send-otp", sendOtpExpressController);
+app.post("/api/auth/verify-otp", verifyOtpExpressController);
 
 // Serverless
 export default app;
