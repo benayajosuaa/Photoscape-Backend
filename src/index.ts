@@ -4,16 +4,42 @@ import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  assignRoleExpressController,
+  findUserExpressController,
   loginExpressController,
+  meExpressController,
   registerExpressController,
   sendOtpExpressController,
   verifyOtpExpressController,
 } from "./controller/auth.controller.js";
+import { authenticateExpress, requireRoles } from "./middleware/auth.middleware.js";
+import { seedPrivilegedUser } from "./services/auth.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
+
+await seedPrivilegedUser({
+  email: process.env.OWNER_EMAIL,
+  name: process.env.OWNER_NAME ?? 'Owner',
+  password: process.env.OWNER_PASSWORD,
+  role: 'owner',
+});
+
+await seedPrivilegedUser({
+  email: process.env.ADMIN_EMAIL,
+  name: process.env.ADMIN_NAME ?? 'Admin',
+  password: process.env.ADMIN_PASSWORD,
+  role: 'admin',
+});
+
+await seedPrivilegedUser({
+  email: process.env.MANAGER_EMAIL,
+  name: process.env.MANAGER_NAME ?? 'Manager',
+  password: process.env.MANAGER_PASSWORD,
+  role: 'manager',
+});
 
 const app = express();
 
@@ -38,6 +64,10 @@ app.post("/api/auth/register", registerExpressController);
 app.post("/api/auth/login", loginExpressController);
 app.post("/api/auth/send-otp", sendOtpExpressController);
 app.post("/api/auth/verify-otp", verifyOtpExpressController);
+app.get("/api/auth/me", authenticateExpress, meExpressController);
+
+app.get("/api/admin/users/find", authenticateExpress, requireRoles("owner", "admin", "manager"), findUserExpressController);
+app.patch("/api/admin/users/role", authenticateExpress, requireRoles("owner"), assignRoleExpressController);
 
 // Serverless
 export default app;

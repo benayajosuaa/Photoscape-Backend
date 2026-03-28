@@ -1,15 +1,26 @@
 import type { Request as ExpressRequest, Response as ExpressResponse } from "express";
 import {
+  assignUserRole,
   completeRegistration,
+  findUserByEmail,
   hasPendingRegistration,
+  isValidUserRole,
   loginUser,
   startRegistration,
+  type UserRole,
 } from '../services/auth.service.js';
 import { generateOTP, verifyOTP } from '../services/otp.service.js';
 import { sendOTPEmail } from '../utils/mailer.js';
 import { validateEmail } from '../utils/validator.js';
 
-async function handleRegister(email: string, password: string) {
+async function handleRegister(name: string, email: string, password: string) {
+  if (!name || name.trim().length < 2) {
+    return {
+      body: { error: "Nama minimal 2 karakter" },
+      status: 400,
+    };
+  }
+
   if (!validateEmail(email)) {
     return {
       body: { error: "Email tidak valid" },
@@ -25,7 +36,7 @@ async function handleRegister(email: string, password: string) {
   }
 
   try {
-    await startRegistration(email, password);
+    await startRegistration(name.trim(), email, password);
 
     const otp = generateOTP(email);
     await sendOTPEmail(email, otp);
@@ -33,7 +44,61 @@ async function handleRegister(email: string, password: string) {
     return {
       body: {
         email,
+        name: name.trim(),
         message: "Untuk memastikan email anda terdaftar, tolong check email untuk melihat kode OTP.",
+      },
+      status: 200,
+    };
+  } catch (err: any) {
+    return {
+      body: { error: err.message },
+      status: 400,
+    };
+  }
+}
+
+function handleGetCurrentUser(currentUser: unknown) {
+  if (!currentUser || typeof currentUser !== 'object') {
+    return {
+      body: { error: "User tidak valid" },
+      status: 401,
+    };
+  }
+
+  return {
+    body: { user: currentUser },
+    status: 200,
+  };
+}
+
+function handleAssignRole(email: string, role: string) {
+  if (!validateEmail(email)) {
+    return {
+      body: { error: "Email tidak valid" },
+      status: 400,
+    };
+  }
+
+  if (!isValidUserRole(role)) {
+    return {
+      body: { error: "Role tidak valid" },
+      status: 400,
+    };
+  }
+
+  if (role === 'customer') {
+    return {
+      body: { error: "Role customer tidak perlu di-assign dari panel admin." },
+      status: 400,
+    };
+  }
+
+  try {
+    const user = assignUserRole(email, role as UserRole);
+    return {
+      body: {
+        message: "Role user berhasil diperbarui",
+        user,
       },
       status: 200,
     };
@@ -133,8 +198,8 @@ function handleVerifyOtp(email: string, otp: string) {
 }
 
 export async function registerController(req: Request) {
-  const { email, password } = await req.json();
-  const result = await handleRegister(email, password);
+  const { name, email, password } = await req.json();
+  const result = await handleRegister(name, email, password);
   return Response.json(result.body, { status: result.status });
 }
 
@@ -157,8 +222,8 @@ export async function verifyOtpController(req: Request) {
 }
 
 export async function registerExpressController(req: ExpressRequest, res: ExpressResponse) {
-  const { email, password } = req.body;
-  const result = await handleRegister(email, password);
+  const { name, email, password } = req.body;
+  const result = await handleRegister(name, email, password);
   res.status(result.status).json(result.body);
 }
 
@@ -178,4 +243,33 @@ export async function verifyOtpExpressController(req: ExpressRequest, res: Expre
   const { email, otp } = req.body;
   const result = handleVerifyOtp(email, otp);
   res.status(result.status).json(result.body);
+}
+
+export function meExpressController(req: ExpressRequest, res: ExpressResponse) {
+  const result = handleGetCurrentUser(req.user ?? null);
+  res.status(result.status).json(result.body);
+}
+
+export function assignRoleExpressController(req: ExpressRequest, res: ExpressResponse) {
+  const { email, role } = req.body;
+  const result = handleAssignRole(email, role);
+  res.status(result.status).json(result.body);
+}
+
+export function findUserExpressController(req: ExpressRequest, res: ExpressResponse) {
+  const email = String(req.query.email ?? '');
+
+  if (!validateEmail(email)) {
+    res.status(400).json({ error: "Email tidak valid" });
+    return;
+  }
+
+  const user = findUserByEmail(email);
+
+  if (!user) {
+    res.status(404).json({ error: "User tidak ditemukan" });
+    return;
+  }
+
+  res.status(200).json({ user });
 }

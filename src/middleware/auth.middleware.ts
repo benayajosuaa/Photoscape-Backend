@@ -1,13 +1,62 @@
+import type { NextFunction, Request, Response } from 'express';
+import type { UserRole } from '../services/auth.service.js';
 import { verifyToken } from '../utils/jwt.js';
 
-export function authenticate(req: Request) {
-  const authHeader = req.headers.get('authorization');
+type AuthenticatedUser = {
+  email: string;
+  role: UserRole;
+  userId: string;
+};
 
-  if (!authHeader) throw new Error("No token");
+declare global {
+  namespace Express {
+    interface Request {
+      user?: AuthenticatedUser;
+    }
+  }
+}
+
+function extractToken(authHeader: string | null) {
+  if (!authHeader) {
+    throw new Error("No token");
+  }
 
   const token = authHeader.split(' ')[1];
-  
-  if (!token) throw new Error("Invalid token format");
-  
-  return verifyToken(token);
+
+  if (!token) {
+    throw new Error("Invalid token format");
+  }
+
+  return token;
+}
+
+export function authenticate(req: globalThis.Request) {
+  const token = extractToken(req.headers.get('authorization'));
+  return verifyToken(token) as AuthenticatedUser;
+}
+
+export function authenticateExpress(req: Request, res: Response, next: NextFunction) {
+  try {
+    const token = extractToken(req.header('authorization') ?? null);
+    req.user = verifyToken(token) as AuthenticatedUser;
+    next();
+  } catch (error: any) {
+    res.status(401).json({ error: error.message ?? 'Unauthorized' });
+  }
+}
+
+export function requireRoles(...roles: UserRole[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    if (!roles.includes(req.user.role)) {
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+
+    next();
+  };
 }
