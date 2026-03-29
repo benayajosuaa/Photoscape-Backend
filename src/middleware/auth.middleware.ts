@@ -11,12 +11,13 @@ type AuthenticatedUser = {
 declare global {
   namespace Express {
     interface Request {
+      authToken?: string;
       user?: AuthenticatedUser;
     }
   }
 }
 
-function extractToken(authHeader: string | null) {
+export function extractBearerToken(authHeader: string | null) {
   if (!authHeader) {
     throw new Error("No token");
   }
@@ -31,14 +32,15 @@ function extractToken(authHeader: string | null) {
 }
 
 export function authenticate(req: globalThis.Request) {
-  const token = extractToken(req.headers.get('authorization'));
+  const token = extractBearerToken(req.headers.get('authorization'));
   return verifyToken(token) as AuthenticatedUser;
 }
 
 
 export function authenticateExpress(req: Request, res: Response, next: NextFunction) {
   try {
-    const token = extractToken(req.header('authorization') ?? null);
+    const token = extractBearerToken(req.header('authorization') ?? null);
+    req.authToken = token;
     req.user = verifyToken(token) as AuthenticatedUser;
     next();
   } catch (error: any) {

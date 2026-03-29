@@ -1,4 +1,5 @@
 import type { Request as ExpressRequest, Response as ExpressResponse } from "express";
+import { extractBearerToken } from '../middleware/auth.middleware.js';
 import {
   assignUserRole,
   completeRegistration,
@@ -10,10 +11,13 @@ import {
   type UserRole,
 } from '../services/auth.service.js';
 import { generateOTP, verifyOTP } from '../services/otp.service.js';
+import { getTokenExpiration, revokeToken, SESSION_DURATION_HOURS } from '../utils/jwt.js';
 import { sendOTPEmail } from '../utils/mailer.js';
 import { validateEmail } from '../utils/validator.js';
 
 async function handleRegister(name: string, email: string, password: string) {
+  const normalizedEmail = String(email ?? '').trim().toLowerCase();
+
   if (!name || name.trim().length < 2) {
     return {
       body: { error: "Nama minimal 2 karakter" },
@@ -21,7 +25,7 @@ async function handleRegister(name: string, email: string, password: string) {
     };
   }
 
-  if (!validateEmail(email)) {
+  if (!validateEmail(normalizedEmail)) {
     return {
       body: { error: "Email tidak valid" },
       status: 400,
@@ -36,14 +40,14 @@ async function handleRegister(name: string, email: string, password: string) {
   }
 
   try {
-    await startRegistration(name.trim(), email, password);
+    await startRegistration(name.trim(), normalizedEmail, password);
 
-    const otp = generateOTP(email);
-    await sendOTPEmail(email, otp);
+    const otp = generateOTP(normalizedEmail);
+    await sendOTPEmail(normalizedEmail, otp);
 
     return {
       body: {
-        email,
+        email: normalizedEmail,
         name: name.trim(),
         message: "Untuk memastikan email anda terdaftar, tolong check email untuk melihat kode OTP.",
       },
@@ -72,7 +76,9 @@ function handleGetCurrentUser(currentUser: unknown) {
 }
 
 function handleAssignRole(email: string, role: string) {
-  if (!validateEmail(email)) {
+  const normalizedEmail = String(email ?? '').trim().toLowerCase();
+
+  if (!validateEmail(normalizedEmail)) {
     return {
       body: { error: "Email tidak valid" },
       status: 400,
@@ -94,7 +100,7 @@ function handleAssignRole(email: string, role: string) {
   }
 
   try {
-    const user = assignUserRole(email, role as UserRole);
+    const user = assignUserRole(normalizedEmail, role as UserRole);
     return {
       body: {
         message: "Role user berhasil diperbarui",
@@ -111,7 +117,9 @@ function handleAssignRole(email: string, role: string) {
 }
 
 async function handleLogin(email: string, password: string) {
-  if (!validateEmail(email)) {
+  const normalizedEmail = String(email ?? '').trim().toLowerCase();
+
+  if (!validateEmail(normalizedEmail)) {
     return {
       body: { error: "Email tidak valid" },
       status: 400,
@@ -119,8 +127,17 @@ async function handleLogin(email: string, password: string) {
   }
 
   try {
-    const data = await loginUser(email, password);
-    return { body: data, status: 200 };
+    const data = await loginUser(normalizedEmail, password);
+    return {
+      body: {
+        ...data,
+        session: {
+          expiresAt: getTokenExpiration(data.token),
+          maxAgeHours: SESSION_DURATION_HOURS,
+        },
+      },
+      status: 200,
+    };
   } catch (err: any) {
     return {
       body: { error: err.message },
@@ -130,14 +147,16 @@ async function handleLogin(email: string, password: string) {
 }
 
 async function handleSendOtp(email: string) {
-  if (!validateEmail(email)) {
+  const normalizedEmail = String(email ?? '').trim().toLowerCase();
+
+  if (!validateEmail(normalizedEmail)) {
     return {
       body: { error: "Email tidak valid" },
       status: 400,
     };
   }
 
-  if (!hasPendingRegistration(email)) {
+  if (!hasPendingRegistration(normalizedEmail)) {
     return {
       body: { error: "Tidak ada registrasi pending untuk email ini. Silakan daftar terlebih dahulu." },
       status: 400,
@@ -145,8 +164,8 @@ async function handleSendOtp(email: string) {
   }
 
   try {
-    const otp = generateOTP(email);
-    await sendOTPEmail(email, otp);
+    const otp = generateOTP(normalizedEmail);
+    await sendOTPEmail(normalizedEmail, otp);
     return {
       body: { message: "OTP dikirim ulang. Silakan cek email anda." },
       status: 200,
@@ -160,7 +179,9 @@ async function handleSendOtp(email: string) {
 }
 
 function handleVerifyOtp(email: string, otp: string) {
-  if (!validateEmail(email)) {
+  const normalizedEmail = String(email ?? '').trim().toLowerCase();
+
+  if (!validateEmail(normalizedEmail)) {
     return {
       body: { error: "Email tidak valid" },
       status: 400,
@@ -174,7 +195,7 @@ function handleVerifyOtp(email: string, otp: string) {
     };
   }
 
-  const valid = verifyOTP(email, otp);
+  const valid = verifyOTP(normalizedEmail, otp);
 
   if (!valid) {
     return {
@@ -184,7 +205,7 @@ function handleVerifyOtp(email: string, otp: string) {
   }
 
   try {
-    completeRegistration(email);
+    completeRegistration(normalizedEmail);
     return {
       body: { message: "Registrasi sukses" },
       status: 200,
@@ -192,6 +213,28 @@ function handleVerifyOtp(email: string, otp: string) {
   } catch (err: any) {
     return {
       body: { error: err.message },
+      status: 400,
+    };
+  }
+}
+
+function handleLogout(token: string | null) {
+  if (!token) {
+    return {
+      body: { error: "No token" },
+      status: 401,
+    };
+  }
+
+  try {
+    revokeToken(token);
+    return {
+      body: { message: "Logout berhasil" },
+      status: 200,
+    };
+  } catch (err: any) {
+    return {
+      body: { error: err.message ?? "Gagal logout" },
       status: 400,
     };
   }
@@ -221,6 +264,19 @@ export async function verifyOtpController(req: Request) {
   return Response.json(result.body, { status: result.status });
 }
 
+export async function logoutController(req: Request) {
+  let token: string | null = null;
+
+  try {
+    token = extractBearerToken(req.headers.get('authorization'));
+  } catch {
+    token = null;
+  }
+
+  const result = handleLogout(token);
+  return Response.json(result.body, { status: result.status });
+}
+
 export async function registerExpressController(req: ExpressRequest, res: ExpressResponse) {
   const { name, email, password } = req.body;
   const result = await handleRegister(name, email, password);
@@ -245,6 +301,11 @@ export async function verifyOtpExpressController(req: ExpressRequest, res: Expre
   res.status(result.status).json(result.body);
 }
 
+export function logoutExpressController(req: ExpressRequest, res: ExpressResponse) {
+  const result = handleLogout(req.authToken ?? null);
+  res.status(result.status).json(result.body);
+}
+
 export function meExpressController(req: ExpressRequest, res: ExpressResponse) {
   const result = handleGetCurrentUser(req.user ?? null);
   res.status(result.status).json(result.body);
@@ -257,7 +318,7 @@ export function assignRoleExpressController(req: ExpressRequest, res: ExpressRes
 }
 
 export function findUserExpressController(req: ExpressRequest, res: ExpressResponse) {
-  const email = String(req.query.email ?? '');
+  const email = String(req.query.email ?? '').trim().toLowerCase();
 
   if (!validateEmail(email)) {
     res.status(400).json({ error: "Email tidak valid" });

@@ -23,6 +23,10 @@ const users: User[] = [];
 const pendingRegistrations = new Map<string, PendingRegistration>();
 let nextUserId = 1;
 
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
 function createUser(params: {
   email: string;
   name: string;
@@ -57,25 +61,27 @@ export function isValidUserRole(role: string): role is UserRole {
 }
 
 export async function startRegistration(name: string, email: string, password: string) {
-  const existing = users.find(u => u.email === email);
+  const normalizedEmail = normalizeEmail(email);
+  const existing = users.find(u => u.email === normalizedEmail);
   if (existing) throw new Error("Email sudah terdaftar");
 
   const hashed = await bcrypt.hash(password, 10);
-  pendingRegistrations.set(email, { name, email, password: hashed });
+  pendingRegistrations.set(normalizedEmail, { name, email: normalizedEmail, password: hashed });
 
-  return { email, name };
+  return { email: normalizedEmail, name };
 }
 
 export function completeRegistration(email: string) {
-  const pendingUser = pendingRegistrations.get(email);
+  const normalizedEmail = normalizeEmail(email);
+  const pendingUser = pendingRegistrations.get(normalizedEmail);
 
   if (!pendingUser) {
     throw new Error("Data registrasi tidak ditemukan. Silakan daftar ulang.");
   }
 
-  const existing = users.find(u => u.email === email);
+  const existing = users.find(u => u.email === normalizedEmail);
   if (existing) {
-    pendingRegistrations.delete(email);
+    pendingRegistrations.delete(normalizedEmail);
     throw new Error("Email sudah terdaftar");
   }
 
@@ -85,15 +91,16 @@ export function completeRegistration(email: string) {
     password: pendingUser.password,
     role: 'customer',
   });
-  pendingRegistrations.delete(email);
+  pendingRegistrations.delete(normalizedEmail);
 
   return sanitizeUser(user);
 }
 
 export async function loginUser(email: string, password: string) {
-  const user = users.find(u => u.email === email);
+  const normalizedEmail = normalizeEmail(email);
+  const user = users.find(u => u.email === normalizedEmail);
 
-  if (!user && pendingRegistrations.has(email)) {
+  if (!user && pendingRegistrations.has(normalizedEmail)) {
     throw new Error("Email belum terverifikasi. Silakan cek OTP registrasi terlebih dahulu.");
   }
 
@@ -115,16 +122,16 @@ export async function loginUser(email: string, password: string) {
 }
 
 export function hasPendingRegistration(email: string) {
-  return pendingRegistrations.has(email);
+  return pendingRegistrations.has(normalizeEmail(email));
 }
 
 export function findUserByEmail(email: string) {
-  const user = users.find(item => item.email === email);
+  const user = users.find(item => item.email === normalizeEmail(email));
   return user ? sanitizeUser(user) : null;
 }
 
 export function assignUserRole(email: string, role: UserRole) {
-  const user = users.find(item => item.email === email);
+  const user = users.find(item => item.email === normalizeEmail(email));
 
   if (!user) {
     throw new Error("User tidak ditemukan");
@@ -146,7 +153,8 @@ export async function seedPrivilegedUser(params: {
     return null;
   }
 
-  const existing = users.find(user => user.email === email);
+  const normalizedEmail = normalizeEmail(email);
+  const existing = users.find(user => user.email === normalizedEmail);
   if (existing) {
     existing.role = role;
     if (name) {
@@ -157,7 +165,7 @@ export async function seedPrivilegedUser(params: {
 
   const hashed = await bcrypt.hash(password, 10);
   const user = createUser({
-    email,
+    email: normalizedEmail,
     name: name ?? role,
     password: hashed,
     role,
