@@ -35,6 +35,7 @@ export function authenticate(req: globalThis.Request) {
   return verifyToken(token) as AuthenticatedUser;
 }
 
+
 export function authenticateExpress(req: Request, res: Response, next: NextFunction) {
   try {
     const token = extractToken(req.header('authorization') ?? null);
