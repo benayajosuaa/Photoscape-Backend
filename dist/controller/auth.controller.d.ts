@@ -10,6 +10,6 @@ export declare function sendOtpExpressController(req: ExpressRequest, res: Expre
 export declare function verifyOtpExpressController(req: ExpressRequest, res: ExpressResponse): Promise<void>;
 export declare function logoutExpressController(req: ExpressRequest, res: ExpressResponse): void;
 export declare function meExpressController(req: ExpressRequest, res: ExpressResponse): void;
-export declare function assignRoleExpressController(req: ExpressRequest, res: ExpressResponse): void;
-export declare function findUserExpressController(req: ExpressRequest, res: ExpressResponse): void;
+export declare function assignRoleExpressController(req: ExpressRequest, res: ExpressResponse): Promise<void>;
+export declare function findUserExpressController(req: ExpressRequest, res: ExpressResponse): Promise<void>;
 //# sourceMappingURL=auth.controller.d.ts.map

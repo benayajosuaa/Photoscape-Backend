@@ -56,7 +56,7 @@ function handleGetCurrentUser(currentUser) {
         status: 200,
     };
 }
-function handleAssignRole(email, role) {
+async function handleAssignRole(email, role) {
     const normalizedEmail = String(email ?? '').trim().toLowerCase();
     if (!validateEmail(normalizedEmail)) {
         return {
@@ -77,7 +77,7 @@ function handleAssignRole(email, role) {
         };
     }
     try {
-        const user = assignUserRole(normalizedEmail, role);
+        const user = await assignUserRole(normalizedEmail, role);
         return {
             body: {
                 message: "Role user berhasil diperbarui",
@@ -150,7 +150,7 @@ async function handleSendOtp(email) {
         };
     }
 }
-function handleVerifyOtp(email, otp) {
+async function handleVerifyOtp(email, otp) {
     const normalizedEmail = String(email ?? '').trim().toLowerCase();
     if (!validateEmail(normalizedEmail)) {
         return {
@@ -172,7 +172,7 @@ function handleVerifyOtp(email, otp) {
         };
     }
     try {
-        completeRegistration(normalizedEmail);
+        await completeRegistration(normalizedEmail);
         return {
             body: { message: "Registrasi sukses" },
             status: 200,
@@ -223,7 +223,7 @@ export async function sendOtpController(req) {
 }
 export async function verifyOtpController(req) {
     const { email, otp } = await req.json();
-    const result = handleVerifyOtp(email, otp);
+    const result = await handleVerifyOtp(email, otp);
     return Response.json(result.body, { status: result.status });
 }
 export async function logoutController(req) {
@@ -254,7 +254,7 @@ export async function sendOtpExpressController(req, res) {
 }
 export async function verifyOtpExpressController(req, res) {
     const { email, otp } = req.body;
-    const result = handleVerifyOtp(email, otp);
+    const result = await handleVerifyOtp(email, otp);
     res.status(result.status).json(result.body);
 }
 export function logoutExpressController(req, res) {
@@ -265,18 +265,18 @@ export function meExpressController(req, res) {
     const result = handleGetCurrentUser(req.user ?? null);
     res.status(result.status).json(result.body);
 }
-export function assignRoleExpressController(req, res) {
+export async function assignRoleExpressController(req, res) {
     const { email, role } = req.body;
-    const result = handleAssignRole(email, role);
+    const result = await handleAssignRole(email, role);
     res.status(result.status).json(result.body);
 }
-export function findUserExpressController(req, res) {
+export async function findUserExpressController(req, res) {
     const email = String(req.query.email ?? '').trim().toLowerCase();
     if (!validateEmail(email)) {
         res.status(400).json({ error: "Email tidak valid" });
         return;
     }
-    const user = findUserByEmail(email);
+    const user = await findUserByEmail(email);
     if (!user) {
         res.status(404).json({ error: "User tidak ditemukan" });
         return;
