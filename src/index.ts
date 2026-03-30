@@ -3,15 +3,7 @@ import type { Request as ExpressRequest, Response as ExpressResponse } from "exp
 import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  assignRoleExpressController,
-  findUserExpressController,
-  loginExpressController,
-  logoutExpressController,
-  meExpressController,
-  registerExpressController,
-  sendOtpExpressController,
-  verifyOtpExpressController,
+import { assignRoleExpressController, findUserExpressController, loginExpressController, logoutExpressController, meExpressController, registerExpressController, sendOtpExpressController, verifyOtpExpressController,
 } from "./controller/auth.controller.js";
 import { authenticateExpress, requireRoles } from "./middleware/auth.middleware.js";
 import { seedPrivilegedUser } from "./services/auth.service.js";
