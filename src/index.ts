@@ -4,8 +4,9 @@ import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assignRoleExpressController, findUserExpressController, loginExpressController, logoutExpressController, meExpressController, registerExpressController, sendOtpExpressController, verifyOtpExpressController,
-} from "./controller/auth.controller.js";
-import { authenticateExpress, requireRoles } from "./middleware/auth.middleware.js";
+} from "./controllers/auth.controller.js";
+import { authenticateExpress, requireRoles } from "./middlewares/auth.middleware.js";
+import bookingRoute from "./routes/booking.route.js";
 import { seedPrivilegedUser } from "./services/auth.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -62,6 +63,7 @@ app.get("/api/auth/me", authenticateExpress, meExpressController);
 
 app.get("/api/admin/users/find", authenticateExpress, requireRoles("owner", "admin", "manager"), findUserExpressController);
 app.patch("/api/admin/users/role", authenticateExpress, requireRoles("owner"), assignRoleExpressController);
+app.use("/api/bookings", bookingRoute);
 
 // Serverless
 export default app;

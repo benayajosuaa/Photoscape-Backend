@@ -1,1 +1,1 @@
-{"version":3,"file":"route.js","sourceRoot":"","sources":["../../../../../src/app/api/auth/register/route.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,kBAAkB,EAAE,MAAM,2CAA2C,CAAC;AAE/E,MAAM,CAAC,KAAK,UAAU,IAAI,CAAC,GAAY;IACrC,OAAO,kBAAkB,CAAC,GAAG,CAAC,CAAC;AACjC,CAAC"}
+{"version":3,"file":"route.js","sourceRoot":"","sources":["../../../../../src/app/api/auth/register/route.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,kBAAkB,EAAE,MAAM,4CAA4C,CAAC;AAEhF,MAAM,CAAC,KAAK,UAAU,IAAI,CAAC,GAAY;IACrC,OAAO,kBAAkB,CAAC,GAAG,CAAC,CAAC;AACjC,CAAC"}

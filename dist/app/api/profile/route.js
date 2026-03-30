@@ -1,4 +1,4 @@
-import { authenticate } from '../../../middleware/auth.middleware.js';
+import { authenticate } from '../../../middlewares/auth.middleware.js';
 export async function GET(req) {
     try {
         const user = authenticate(req);

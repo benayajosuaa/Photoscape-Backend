@@ -1,4 +1,4 @@
-import { logoutController } from '../../../../controller/auth.controller.js';
+import { logoutController } from '../../../../controllers/auth.controller.js';
 export async function POST(req) {
     return logoutController(req);
 }
