@@ -42,6 +42,35 @@ type CreateBookingPayload = {
   }>;
 };
 
+type AdminBookingListParams = {
+  bookingCode?: string;
+  customerName?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  status?: string;
+  paymentStatus?: string;
+  locationId?: string;
+  studioType?: string;
+};
+
+type AdminReschedulePayload = {
+  scheduleId?: string;
+  reason?: string;
+};
+
+type AdminCancelPayload = {
+  reason?: string;
+};
+
+type RevenueGroupBy = "daily" | "weekly" | "monthly";
+
+type AdminRevenueReportParams = {
+  groupBy?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  locationId?: string;
+};
+
 type CreatedBookingResponse = Prisma.BookingGetPayload<{
   include: {
     location: true;
@@ -87,6 +116,84 @@ function addMinutes(date: Date, minutes: number) {
 
 function formatMoney(value: number) {
   return Number(value.toFixed(2));
+}
+
+function parseDateTime(value: string, fieldName: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`${fieldName} tidak valid`);
+  }
+
+  return date;
+}
+
+function startOfUtcDay(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0));
+}
+
+function endOfUtcDay(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999));
+}
+
+function startOfUtcWeek(date: Date) {
+  const day = date.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  return startOfUtcDay(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + diff)));
+}
+
+function endOfUtcWeek(date: Date) {
+  const start = startOfUtcWeek(date);
+  return new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + 6, 23, 59, 59, 999));
+}
+
+function startOfUtcMonth(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1, 0, 0, 0, 0));
+}
+
+function endOfUtcMonth(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+}
+
+function addUtcDays(date: Date, days: number) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + days, date.getUTCHours(), date.getUTCMinutes(), date.getUTCSeconds(), date.getUTCMilliseconds()));
+}
+
+function addUtcMonths(date: Date, months: number) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, date.getUTCDate(), date.getUTCHours(), date.getUTCMinutes(), date.getUTCSeconds(), date.getUTCMilliseconds()));
+}
+
+function isRevenueGroupBy(value: string): value is RevenueGroupBy {
+  return ["daily", "weekly", "monthly"].includes(value);
+}
+
+function buildRevenuePeriodBounds(groupBy: RevenueGroupBy, current: Date) {
+  if (groupBy === "daily") {
+    return {
+      periodStart: startOfUtcDay(current),
+      periodEnd: endOfUtcDay(current),
+      nextCursor: addUtcDays(startOfUtcDay(current), 1),
+      label: startOfUtcDay(current).toISOString().slice(0, 10),
+    };
+  }
+
+  if (groupBy === "weekly") {
+    const periodStart = startOfUtcWeek(current);
+    return {
+      periodStart,
+      periodEnd: endOfUtcWeek(current),
+      nextCursor: addUtcDays(periodStart, 7),
+      label: `${periodStart.toISOString().slice(0, 10)}_week`,
+    };
+  }
+
+  const periodStart = startOfUtcMonth(current);
+  return {
+    periodStart,
+    periodEnd: endOfUtcMonth(current),
+    nextCursor: addUtcMonths(periodStart, 1),
+    label: periodStart.toISOString().slice(0, 7),
+  };
 }
 
 function buildBookingCode() {
@@ -138,6 +245,125 @@ async function getBookingOwnedByUser(userId: string, bookingId: string) {
   }
 
   return booking;
+}
+
+async function createAuditLog(
+  tx: Prisma.TransactionClient,
+  params: {
+    userId?: string;
+    action: string;
+    bookingId: string;
+    oldData?: Prisma.InputJsonValue;
+    newData?: Prisma.InputJsonValue;
+  }
+) {
+  const data: Prisma.AuditLogUncheckedCreateInput = {
+    action: params.action,
+    entityType: "booking",
+    entityId: params.bookingId,
+    bookingId: params.bookingId,
+    userId: params.userId ?? null,
+    ...(params.oldData !== undefined ? { oldData: params.oldData } : {}),
+    ...(params.newData !== undefined ? { newData: params.newData } : {}),
+  };
+
+  await tx.auditLog.create({
+    data,
+  });
+}
+
+function getBookingSource() {
+  return "online";
+}
+
+function buildIssueFlags(booking: {
+  payment: { status: string } | null;
+  status: string;
+}) {
+  const issues: string[] = [];
+
+  if (booking.status === "cancelled") {
+    issues.push("booking_cancelled");
+  }
+
+  if (booking.status === "expired") {
+    issues.push("booking_expired");
+  }
+
+  if (booking.payment?.status === "failed" || booking.payment?.status === "expired") {
+    issues.push("payment_problem");
+  }
+
+  if (booking.status === "pending" && booking.payment?.status === "pending") {
+    issues.push("awaiting_payment");
+  }
+
+  return issues;
+}
+
+function mapAdminBookingListItem(
+  booking: Prisma.BookingGetPayload<{
+    include: {
+      user: true;
+      creator: true;
+      location: true;
+      package: true;
+      schedule: { include: { studio: true } };
+      payment: true;
+      auditLogs: {
+        include: { user: true };
+      };
+    };
+  }>
+) {
+  const latestAudit = booking.auditLogs[0] ?? null;
+
+  return {
+    bookingId: booking.id,
+    bookingCode: booking.bookingCode,
+    source: getBookingSource(),
+    status: booking.status,
+    issueFlags: buildIssueFlags(booking),
+    customer: {
+      name: booking.customerName,
+      phone: booking.customerPhone,
+      accountName: booking.user?.name ?? null,
+      accountEmail: booking.user?.email ?? null,
+    },
+    bookingContext: {
+      location: booking.location.name,
+      package: booking.package.name,
+      studio: booking.schedule.studio.name,
+      studioType: booking.schedule.studio.type,
+      date: booking.schedule.date.toISOString(),
+      startTime: booking.schedule.startTime.toISOString(),
+      endTime: booking.schedule.endTime.toISOString(),
+      participantCount: booking.participantCount,
+    },
+    payment: {
+      totalPrice: booking.totalPrice,
+      paymentStatus: booking.payment?.status ?? null,
+      paymentMethod: booking.payment?.method ?? null,
+      paidAmount: booking.payment?.status === "paid" ? booking.payment.amount : 0,
+      gatewayReference: booking.payment?.gatewayReference ?? null,
+    },
+    handledBy: booking.creator
+      ? {
+          id: booking.creator.id,
+          name: booking.creator.name,
+          email: booking.creator.email,
+        }
+      : null,
+    lastAudit: latestAudit
+      ? {
+          action: latestAudit.action,
+          at: latestAudit.createdAt.toISOString(),
+          actorName: latestAudit.user?.name ?? null,
+        }
+      : null,
+    createdAt: booking.createdAt.toISOString(),
+    updatedAt: booking.updatedAt.toISOString(),
+  };
 }
 
 function calculateAddOnTotal(addOns: Array<{ quantity: number; addOn: { price: number } }>) {
@@ -539,6 +765,684 @@ export const BookingServices = {
     await syncBookingPayments();
     const booking = await getBookingOwnedByUser(userId, bookingId);
     return toSummaryResponse(booking);
+  },
+
+  async getAdminBookings(params: AdminBookingListParams) {
+    await syncBookingPayments();
+
+    const where: Prisma.BookingWhereInput = {};
+    const scheduleFilter: Prisma.ScheduleWhereInput = {};
+
+    if (params.bookingCode) {
+      where.bookingCode = {
+        contains: params.bookingCode.trim(),
+        mode: "insensitive",
+      };
+    }
+
+    if (params.customerName) {
+      where.customerName = {
+        contains: params.customerName.trim(),
+        mode: "insensitive",
+      };
+    }
+
+    if (params.status) {
+      where.status = params.status as BookingStatus;
+    }
+
+    if (params.paymentStatus) {
+      where.payment = {
+        is: {
+          status: params.paymentStatus as any,
+        },
+      };
+    }
+
+    if (params.locationId) {
+      where.locationId = params.locationId.trim();
+    }
+
+    if (params.studioType) {
+      if (!isStudioType(params.studioType.trim())) {
+        throw new Error("Jenis studio tidak valid");
+      }
+
+      scheduleFilter.studio = {
+        type: params.studioType.trim() as StudioType,
+      };
+    }
+
+    if (params.dateFrom || params.dateTo) {
+      scheduleFilter.startTime = {
+        ...(params.dateFrom ? { gte: parseDateTime(params.dateFrom, "dateFrom") } : {}),
+        ...(params.dateTo ? { lte: parseDateTime(params.dateTo, "dateTo") } : {}),
+      };
+    }
+
+    if (Object.keys(scheduleFilter).length > 0) {
+      where.schedule = {
+        is: scheduleFilter,
+      };
+    }
+
+    const bookings = await prisma.booking.findMany({
+      where,
+      include: {
+        user: true,
+        creator: true,
+        location: true,
+        package: true,
+        schedule: {
+          include: {
+            studio: true,
+          },
+        },
+        payment: true,
+        auditLogs: {
+          include: {
+            user: true,
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 1,
+        },
+      },
+      orderBy: [{ schedule: { startTime: "asc" } }, { createdAt: "desc" }],
+    });
+
+    const items = bookings.map(mapAdminBookingListItem);
+    const summary = items.reduce(
+      (acc, item) => {
+        acc.totalBookings += 1;
+        acc.totalOrderValue = formatMoney(acc.totalOrderValue + item.payment.totalPrice);
+        acc.totalPaidAmount = formatMoney(acc.totalPaidAmount + item.payment.paidAmount);
+
+        if (item.status === "pending") acc.pendingBookings += 1;
+        if (item.status === "confirmed") acc.confirmedBookings += 1;
+        if (item.status === "completed") acc.completedBookings += 1;
+        if (item.status === "cancelled") acc.cancelledBookings += 1;
+        if (item.issueFlags.length > 0) acc.problematicBookings += 1;
+
+        return acc;
+      },
+      {
+        totalBookings: 0,
+        totalOrderValue: 0,
+        totalPaidAmount: 0,
+        pendingBookings: 0,
+        confirmedBookings: 0,
+        completedBookings: 0,
+        cancelledBookings: 0,
+        problematicBookings: 0,
+      }
+    );
+
+    return {
+      filters: params,
+      summary,
+      items,
+    };
+  },
+
+  async getAdminBookingDetail(bookingId: string) {
+    await syncBookingPayments();
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        user: true,
+        creator: true,
+        location: true,
+        package: true,
+        schedule: {
+          include: {
+            studio: true,
+          },
+        },
+        addOns: {
+          include: {
+            addOn: true,
+          },
+        },
+        payment: true,
+        ticket: true,
+        auditLogs: {
+          include: {
+            user: true,
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+        },
+      },
+    });
+
+    if (!booking) {
+      throw new Error("Booking tidak ditemukan");
+    }
+
+    const addOnTotal = calculateAddOnTotal(booking.addOns);
+
+    return {
+      bookingId: booking.id,
+      bookingCode: booking.bookingCode,
+      source: getBookingSource(),
+      status: booking.status,
+      issueFlags: buildIssueFlags(booking),
+      customer: {
+        name: booking.customerName,
+        phone: booking.customerPhone,
+        user: booking.user
+          ? {
+              id: booking.user.id,
+              name: booking.user.name,
+              email: booking.user.email,
+              role: booking.user.role,
+            }
+          : null,
+      },
+      handledBy: booking.creator
+        ? {
+            id: booking.creator.id,
+            name: booking.creator.name,
+            email: booking.creator.email,
+          }
+        : null,
+      bookingContext: {
+        location: {
+          id: booking.location.id,
+          name: booking.location.name,
+        },
+        package: {
+          id: booking.package.id,
+          name: booking.package.name,
+          durationMinutes: booking.package.durationMinutes,
+          maxCapacity: booking.package.maxCapacity,
+          price: booking.package.price,
+        },
+        schedule: {
+          id: booking.schedule.id,
+          date: booking.schedule.date.toISOString(),
+          startTime: booking.schedule.startTime.toISOString(),
+          endTime: booking.schedule.endTime.toISOString(),
+        },
+        studio: {
+          id: booking.schedule.studio.id,
+          name: booking.schedule.studio.name,
+          type: booking.schedule.studio.type,
+          capacity: booking.schedule.studio.capacity,
+        },
+        participantCount: booking.participantCount,
+        addOns: booking.addOns.map(item => ({
+          id: item.addOn.id,
+          name: item.addOn.name,
+          quantity: item.quantity,
+          unitPrice: item.addOn.price,
+          subtotal: formatMoney(item.quantity * item.addOn.price),
+        })),
+      },
+      financialContext: {
+        packagePrice: booking.package.price,
+        addOnTotal: formatMoney(addOnTotal),
+        totalOrderValue: booking.totalPrice,
+        payment: booking.payment
+          ? {
+              id: booking.payment.id,
+              status: booking.payment.status,
+              method: booking.payment.method,
+              amount: booking.payment.amount,
+              gatewayReference: booking.payment.gatewayReference,
+              paidAt: booking.payment.paidAt?.toISOString() ?? null,
+              expiredAt: booking.payment.expiredAt?.toISOString() ?? null,
+            }
+          : null,
+      },
+      ticket: booking.ticket
+        ? {
+            id: booking.ticket.id,
+            qrCode: booking.ticket.qrCode,
+            status: booking.ticket.status,
+            issuedAt: booking.ticket.issuedAt.toISOString(),
+            expiredAt: booking.ticket.expiredAt.toISOString(),
+          }
+        : null,
+      auditTrail: booking.auditLogs.map(log => ({
+        id: log.id,
+        action: log.action,
+        actor: log.user
+          ? {
+              id: log.user.id,
+              name: log.user.name,
+              email: log.user.email,
+              role: log.user.role,
+            }
+          : null,
+        oldData: log.oldData,
+        newData: log.newData,
+        createdAt: log.createdAt.toISOString(),
+      })),
+      createdAt: booking.createdAt.toISOString(),
+      updatedAt: booking.updatedAt.toISOString(),
+    };
+  },
+
+  async getAdminAuditLogs(params: { bookingId?: string; action?: string }) {
+    const where: Prisma.AuditLogWhereInput = {
+      entityType: "booking",
+    };
+
+    if (params.bookingId) {
+      where.bookingId = params.bookingId.trim();
+    }
+
+    if (params.action) {
+      where.action = {
+        contains: params.action.trim(),
+        mode: "insensitive",
+      };
+    }
+
+    const logs = await prisma.auditLog.findMany({
+      where,
+      include: {
+        user: true,
+        booking: {
+          include: {
+            payment: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return {
+      total: logs.length,
+      items: logs.map(log => ({
+        id: log.id,
+        action: log.action,
+        bookingId: log.bookingId,
+        bookingCode: log.booking?.bookingCode ?? null,
+        bookingStatus: log.booking?.status ?? null,
+        paymentStatus: log.booking?.payment?.status ?? null,
+        paymentAmount: log.booking?.payment?.amount ?? null,
+        actor: log.user
+          ? {
+              id: log.user.id,
+              name: log.user.name,
+              email: log.user.email,
+              role: log.user.role,
+            }
+          : null,
+        oldData: log.oldData,
+        newData: log.newData,
+        createdAt: log.createdAt.toISOString(),
+      })),
+    };
+  },
+
+  async getAdminRevenueReport(params: AdminRevenueReportParams) {
+    await syncBookingPayments();
+
+    const groupBy: RevenueGroupBy = params.groupBy && isRevenueGroupBy(params.groupBy) ? params.groupBy : "daily";
+    const dateFrom = params.dateFrom ? parseDateOnly(params.dateFrom) : startOfUtcDay(new Date());
+    const dateTo = params.dateTo ? parseDateOnly(params.dateTo) : dateFrom;
+
+    if (dateFrom > dateTo) {
+      throw new Error("dateFrom tidak boleh lebih besar dari dateTo");
+    }
+
+    const paidWhere: Prisma.PaymentWhereInput = {
+      status: "paid",
+      paidAt: {
+        gte: startOfUtcDay(dateFrom),
+        lte: endOfUtcDay(dateTo),
+      },
+    };
+
+    if (params.locationId) {
+      paidWhere.booking = {
+        locationId: params.locationId.trim(),
+      };
+    }
+
+    const paidPayments = await prisma.payment.findMany({
+      where: paidWhere,
+      include: {
+        booking: {
+          include: {
+            location: true,
+            package: true,
+          },
+        },
+      },
+      orderBy: {
+        paidAt: "asc",
+      },
+    });
+
+    const cancelledPaidWhere: Prisma.BookingWhereInput = {
+      status: "cancelled",
+      payment: {
+        is: {
+          status: "paid",
+          paidAt: {
+            gte: startOfUtcDay(dateFrom),
+            lte: endOfUtcDay(dateTo),
+          },
+        },
+      },
+    };
+
+    if (params.locationId) {
+      cancelledPaidWhere.locationId = params.locationId.trim();
+    }
+
+    const cancelledPaidBookings = await prisma.booking.findMany({
+      where: cancelledPaidWhere,
+      include: {
+        payment: true,
+      },
+    });
+
+    const periods: Array<{
+      label: string;
+      periodStart: string;
+      periodEnd: string;
+      paidTransactions: number;
+      grossRevenue: number;
+      cancelledPaidBookings: number;
+      cancelledPaidAmount: number;
+      activeRevenueEstimate: number;
+    }> = [];
+
+    for (
+      let cursor = startOfUtcDay(dateFrom);
+      cursor <= endOfUtcDay(dateTo);
+    ) {
+      const { periodStart, periodEnd, nextCursor, label } = buildRevenuePeriodBounds(groupBy, cursor);
+
+      if (periodStart > endOfUtcDay(dateTo)) {
+        break;
+      }
+
+      const inPeriodPayments = paidPayments.filter(payment => {
+        if (!payment.paidAt) return false;
+        return payment.paidAt >= periodStart && payment.paidAt <= periodEnd;
+      });
+
+      const inPeriodCancelledPaid = cancelledPaidBookings.filter(booking => {
+        const paidAt = booking.payment?.paidAt;
+        if (!paidAt) return false;
+        return paidAt >= periodStart && paidAt <= periodEnd;
+      });
+
+      const grossRevenue = formatMoney(inPeriodPayments.reduce((sum, payment) => sum + payment.amount, 0));
+      const cancelledPaidAmount = formatMoney(
+        inPeriodCancelledPaid.reduce((sum, booking) => sum + (booking.payment?.amount ?? 0), 0)
+      );
+
+      periods.push({
+        label,
+        periodStart: periodStart.toISOString(),
+        periodEnd: periodEnd.toISOString(),
+        paidTransactions: inPeriodPayments.length,
+        grossRevenue,
+        cancelledPaidBookings: inPeriodCancelledPaid.length,
+        cancelledPaidAmount,
+        activeRevenueEstimate: formatMoney(grossRevenue - cancelledPaidAmount),
+      });
+
+      if (nextCursor > endOfUtcDay(dateTo)) {
+        break;
+      }
+
+      cursor = nextCursor;
+    }
+
+    const grossRevenue = formatMoney(paidPayments.reduce((sum, payment) => sum + payment.amount, 0));
+    const cancelledPaidAmount = formatMoney(
+      cancelledPaidBookings.reduce((sum, booking) => sum + (booking.payment?.amount ?? 0), 0)
+    );
+
+    const revenueByLocation = new Map<string, { locationId: string; locationName: string; grossRevenue: number; paidTransactions: number }>();
+
+    for (const payment of paidPayments) {
+      const locationId = payment.booking.locationId;
+      const current = revenueByLocation.get(locationId) ?? {
+        locationId,
+        locationName: payment.booking.location.name,
+        grossRevenue: 0,
+        paidTransactions: 0,
+      };
+
+      current.grossRevenue = formatMoney(current.grossRevenue + payment.amount);
+      current.paidTransactions += 1;
+      revenueByLocation.set(locationId, current);
+    }
+
+    return {
+      filters: {
+        groupBy,
+        dateFrom: startOfUtcDay(dateFrom).toISOString(),
+        dateTo: endOfUtcDay(dateTo).toISOString(),
+        locationId: params.locationId ?? null,
+        timezone: "UTC",
+      },
+      summary: {
+        paidTransactions: paidPayments.length,
+        grossRevenue,
+        cancelledPaidBookings: cancelledPaidBookings.length,
+        cancelledPaidAmount,
+        activeRevenueEstimate: formatMoney(grossRevenue - cancelledPaidAmount),
+      },
+      periods,
+      revenueByLocation: Array.from(revenueByLocation.values()).sort((a, b) => a.locationName.localeCompare(b.locationName)),
+    };
+  },
+
+  async rescheduleAdminBooking(adminUserId: string, bookingId: string, payload: AdminReschedulePayload) {
+    await syncBookingPayments();
+
+    const scheduleId = String(payload.scheduleId ?? "").trim();
+    const reason = String(payload.reason ?? "").trim();
+
+    if (!scheduleId) {
+      throw new Error("scheduleId wajib diisi");
+    }
+
+    return prisma.$transaction(async tx => {
+      const [adminUser, booking, nextSchedule] = await Promise.all([
+        tx.user.findUnique({
+          where: { id: adminUserId },
+        }),
+        tx.booking.findUnique({
+          where: { id: bookingId },
+          include: {
+            package: true,
+            schedule: {
+              include: {
+                studio: true,
+              },
+            },
+            payment: true,
+            ticket: true,
+          },
+        }),
+        tx.schedule.findUnique({
+          where: { id: scheduleId },
+          include: {
+            studio: true,
+            booking: true,
+          },
+        }),
+      ]);
+
+      if (!adminUser) throw new Error("Admin tidak ditemukan");
+      if (!booking) throw new Error("Booking tidak ditemukan");
+      if (!nextSchedule) throw new Error("Jadwal baru tidak ditemukan");
+      if (["cancelled", "completed", "expired"].includes(booking.status)) {
+        throw new Error("Booking ini tidak bisa di-reschedule");
+      }
+
+      const slotDurationMinutes = (nextSchedule.endTime.getTime() - nextSchedule.startTime.getTime()) / (60 * 1000);
+      if (slotDurationMinutes < booking.package.durationMinutes) {
+        throw new Error("Durasi slot baru tidak cukup untuk paket yang dipilih");
+      }
+
+      if (nextSchedule.startTime <= new Date()) {
+        throw new Error("Jadwal baru sudah lewat");
+      }
+
+      if (
+        nextSchedule.booking &&
+        nextSchedule.booking.id !== booking.id &&
+        ACTIVE_BOOKING_STATUSES.includes(nextSchedule.booking.status)
+      ) {
+        throw new Error("Jadwal baru sudah terisi");
+      }
+
+      const updatedBooking = await tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          scheduleId: nextSchedule.id,
+          locationId: nextSchedule.studio.locationId,
+        },
+        include: {
+          schedule: {
+            include: {
+              studio: true,
+            },
+          },
+        },
+      });
+
+      if (booking.ticket) {
+        await tx.ticket.update({
+          where: { bookingId: booking.id },
+          data: {
+            expiredAt: nextSchedule.endTime,
+            status: booking.payment?.status === "paid" ? "active" : booking.ticket.status,
+          },
+        });
+      }
+
+      await createAuditLog(tx, {
+        userId: adminUser.id,
+        action: "booking_rescheduled",
+        bookingId: booking.id,
+        oldData: {
+          scheduleId: booking.schedule.id,
+          studioName: booking.schedule.studio.name,
+          startTime: booking.schedule.startTime.toISOString(),
+          endTime: booking.schedule.endTime.toISOString(),
+        },
+        newData: {
+          scheduleId: updatedBooking.schedule.id,
+          studioName: updatedBooking.schedule.studio.name,
+          startTime: updatedBooking.schedule.startTime.toISOString(),
+          endTime: updatedBooking.schedule.endTime.toISOString(),
+          reason: reason || null,
+        },
+      });
+
+      return {
+        bookingId: booking.id,
+        bookingCode: booking.bookingCode,
+        status: updatedBooking.status,
+        newSchedule: {
+          id: updatedBooking.schedule.id,
+          studioName: updatedBooking.schedule.studio.name,
+          studioType: updatedBooking.schedule.studio.type,
+          startTime: updatedBooking.schedule.startTime.toISOString(),
+          endTime: updatedBooking.schedule.endTime.toISOString(),
+        },
+      };
+    });
+  },
+
+  async cancelAdminBooking(adminUserId: string, bookingId: string, payload: AdminCancelPayload) {
+    await syncBookingPayments();
+
+    const reason = String(payload.reason ?? "").trim();
+
+    if (!reason || reason.length < 3) {
+      throw new Error("Alasan pembatalan minimal 3 karakter");
+    }
+
+    return prisma.$transaction(async tx => {
+      const [adminUser, booking] = await Promise.all([
+        tx.user.findUnique({
+          where: { id: adminUserId },
+        }),
+        tx.booking.findUnique({
+          where: { id: bookingId },
+          include: {
+            payment: true,
+            ticket: true,
+          },
+        }),
+      ]);
+
+      if (!adminUser) throw new Error("Admin tidak ditemukan");
+      if (!booking) throw new Error("Booking tidak ditemukan");
+      if (["cancelled", "completed", "expired"].includes(booking.status)) {
+        throw new Error("Booking ini tidak bisa dibatalkan");
+      }
+
+      const updatedBooking = await tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          status: "cancelled",
+        },
+      });
+
+      if (booking.payment?.status === "pending") {
+        await tx.payment.update({
+          where: { bookingId: booking.id },
+          data: {
+            status: "failed",
+            expiredAt: new Date(),
+          },
+        });
+      }
+
+      if (booking.ticket) {
+        await tx.ticket.update({
+          where: { bookingId: booking.id },
+          data: {
+            status: "expired",
+            expiredAt: new Date(),
+          },
+        });
+      }
+
+      await createAuditLog(tx, {
+        userId: adminUser.id,
+        action: "booking_cancelled_by_admin",
+        bookingId: booking.id,
+        oldData: {
+          status: booking.status,
+          paymentStatus: booking.payment?.status ?? null,
+        },
+        newData: {
+          status: updatedBooking.status,
+          reason,
+          refundFollowUpRequired: booking.payment?.status === "paid",
+        },
+      });
+
+      return {
+        bookingId: booking.id,
+        bookingCode: booking.bookingCode,
+        status: updatedBooking.status,
+        reason,
+        refundFollowUpRequired: booking.payment?.status === "paid",
+      };
+    });
   },
 
   async createPayment(userId: string, bookingId: string, method: string) {

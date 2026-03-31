@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 type BookingMetaParams = {
     locationId?: string;
     studioType?: string;
@@ -20,6 +21,30 @@ type CreateBookingPayload = {
         addOnId: string;
         quantity?: number;
     }>;
+};
+type AdminBookingListParams = {
+    bookingCode?: string;
+    customerName?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    status?: string;
+    paymentStatus?: string;
+    locationId?: string;
+    studioType?: string;
+};
+type AdminReschedulePayload = {
+    scheduleId?: string;
+    reason?: string;
+};
+type AdminCancelPayload = {
+    reason?: string;
+};
+type RevenueGroupBy = "daily" | "weekly" | "monthly";
+type AdminRevenueReportParams = {
+    groupBy?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    locationId?: string;
 };
 export declare const BookingServices: {
     getMeta(params: BookingMetaParams): Promise<{
@@ -176,6 +201,227 @@ export declare const BookingServices: {
             issuedAt: string;
             expiredAt: string;
         } | null;
+    }>;
+    getAdminBookings(params: AdminBookingListParams): Promise<{
+        filters: AdminBookingListParams;
+        summary: {
+            totalBookings: number;
+            totalOrderValue: number;
+            totalPaidAmount: number;
+            pendingBookings: number;
+            confirmedBookings: number;
+            completedBookings: number;
+            cancelledBookings: number;
+            problematicBookings: number;
+        };
+        items: {
+            bookingId: string;
+            bookingCode: string;
+            source: string;
+            status: import(".prisma/client").$Enums.BookingStatus;
+            issueFlags: string[];
+            customer: {
+                name: string;
+                phone: string;
+                accountName: string | null;
+                accountEmail: string | null;
+            };
+            bookingContext: {
+                location: string;
+                package: string;
+                studio: string;
+                studioType: import(".prisma/client").$Enums.StudioType;
+                date: string;
+                startTime: string;
+                endTime: string;
+                participantCount: number;
+            };
+            payment: {
+                totalPrice: number;
+                paymentStatus: import(".prisma/client").$Enums.PaymentStatus | null;
+                paymentMethod: import(".prisma/client").$Enums.PaymentMethod | null;
+                paidAmount: number;
+                gatewayReference: string | null;
+            };
+            handledBy: {
+                id: string;
+                name: string;
+                email: string;
+            } | null;
+            lastAudit: {
+                action: string;
+                at: string;
+                actorName: string | null;
+            } | null;
+            createdAt: string;
+            updatedAt: string;
+        }[];
+    }>;
+    getAdminBookingDetail(bookingId: string): Promise<{
+        bookingId: string;
+        bookingCode: string;
+        source: string;
+        status: import(".prisma/client").$Enums.BookingStatus;
+        issueFlags: string[];
+        customer: {
+            name: string;
+            phone: string;
+            user: {
+                id: string;
+                name: string;
+                email: string;
+                role: import(".prisma/client").$Enums.UserRole;
+            } | null;
+        };
+        handledBy: {
+            id: string;
+            name: string;
+            email: string;
+        } | null;
+        bookingContext: {
+            location: {
+                id: string;
+                name: string;
+            };
+            package: {
+                id: string;
+                name: string;
+                durationMinutes: number;
+                maxCapacity: number;
+                price: number;
+            };
+            schedule: {
+                id: string;
+                date: string;
+                startTime: string;
+                endTime: string;
+            };
+            studio: {
+                id: string;
+                name: string;
+                type: import(".prisma/client").$Enums.StudioType;
+                capacity: number;
+            };
+            participantCount: number;
+            addOns: {
+                id: string;
+                name: string;
+                quantity: number;
+                unitPrice: number;
+                subtotal: number;
+            }[];
+        };
+        financialContext: {
+            packagePrice: number;
+            addOnTotal: number;
+            totalOrderValue: number;
+            payment: {
+                id: string;
+                status: import(".prisma/client").$Enums.PaymentStatus;
+                method: import(".prisma/client").$Enums.PaymentMethod;
+                amount: number;
+                gatewayReference: string | null;
+                paidAt: string | null;
+                expiredAt: string | null;
+            } | null;
+        };
+        ticket: {
+            id: string;
+            qrCode: string;
+            status: import(".prisma/client").$Enums.TicketStatus;
+            issuedAt: string;
+            expiredAt: string;
+        } | null;
+        auditTrail: {
+            id: string;
+            action: string;
+            actor: {
+                id: string;
+                name: string;
+                email: string;
+                role: import(".prisma/client").$Enums.UserRole;
+            } | null;
+            oldData: Prisma.JsonValue;
+            newData: Prisma.JsonValue;
+            createdAt: string;
+        }[];
+        createdAt: string;
+        updatedAt: string;
+    }>;
+    getAdminAuditLogs(params: {
+        bookingId?: string;
+        action?: string;
+    }): Promise<{
+        total: number;
+        items: {
+            id: string;
+            action: string;
+            bookingId: string | null;
+            bookingCode: string | null;
+            bookingStatus: import(".prisma/client").$Enums.BookingStatus | null;
+            paymentStatus: import(".prisma/client").$Enums.PaymentStatus | null;
+            paymentAmount: number | null;
+            actor: {
+                id: string;
+                name: string;
+                email: string;
+                role: import(".prisma/client").$Enums.UserRole;
+            } | null;
+            oldData: Prisma.JsonValue;
+            newData: Prisma.JsonValue;
+            createdAt: string;
+        }[];
+    }>;
+    getAdminRevenueReport(params: AdminRevenueReportParams): Promise<{
+        filters: {
+            groupBy: RevenueGroupBy;
+            dateFrom: string;
+            dateTo: string;
+            locationId: string | null;
+            timezone: string;
+        };
+        summary: {
+            paidTransactions: number;
+            grossRevenue: number;
+            cancelledPaidBookings: number;
+            cancelledPaidAmount: number;
+            activeRevenueEstimate: number;
+        };
+        periods: {
+            label: string;
+            periodStart: string;
+            periodEnd: string;
+            paidTransactions: number;
+            grossRevenue: number;
+            cancelledPaidBookings: number;
+            cancelledPaidAmount: number;
+            activeRevenueEstimate: number;
+        }[];
+        revenueByLocation: {
+            locationId: string;
+            locationName: string;
+            grossRevenue: number;
+            paidTransactions: number;
+        }[];
+    }>;
+    rescheduleAdminBooking(adminUserId: string, bookingId: string, payload: AdminReschedulePayload): Promise<{
+        bookingId: string;
+        bookingCode: string;
+        status: import(".prisma/client").$Enums.BookingStatus;
+        newSchedule: {
+            id: string;
+            studioName: string;
+            studioType: import(".prisma/client").$Enums.StudioType;
+            startTime: string;
+            endTime: string;
+        };
+    }>;
+    cancelAdminBooking(adminUserId: string, bookingId: string, payload: AdminCancelPayload): Promise<{
+        bookingId: string;
+        bookingCode: string;
+        status: import(".prisma/client").$Enums.BookingStatus;
+        reason: string;
+        refundFollowUpRequired: boolean;
     }>;
     createPayment(userId: string, bookingId: string, method: string): Promise<{
         bookingId: string;

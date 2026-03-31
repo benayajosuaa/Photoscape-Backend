@@ -4,6 +4,12 @@ export declare const BookingController: {
     getAvailability(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
     createBooking(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
     getSummary(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
+    getAdminBookings(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
+    getAdminBookingDetail(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
+    getAdminAuditLogs(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
+    getAdminRevenueReport(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
+    rescheduleAdminBooking(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
+    cancelAdminBooking(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
     createPayment(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
     showQrisPaymentPage(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
     confirmQrisPaymentPage(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
