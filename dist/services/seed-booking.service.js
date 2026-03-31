@@ -1,19 +1,30 @@
 import { prisma } from "../utils/prisma.js";
 const LOCATION_NAMES = ["Jakarta", "Surabaya", "Medan"];
 const STUDIO_SEEDS = [
-    { locationName: "Jakarta", name: "Studio K1 Jakarta", type: "K1", capacity: 6 },
-    { locationName: "Jakarta", name: "Studio K2 Jakarta", type: "K2", capacity: 8 },
+    { locationName: "Jakarta", name: "Studio K1 Jakarta", type: "K1", capacity: 5 },
+    { locationName: "Jakarta", name: "Studio K2 Jakarta", type: "K2", capacity: 15 },
     { locationName: "Jakarta", name: "Photo Box 1 Jakarta", type: "PHOTO_BOX", capacity: 4 },
     { locationName: "Jakarta", name: "Photo Box 2 Jakarta", type: "PHOTO_BOX", capacity: 4 },
-    { locationName: "Jakarta", name: "Self Photo 1 Jakarta", type: "SELF_PHOTO", capacity: 4 },
-    { locationName: "Surabaya", name: "Studio K1 Surabaya", type: "K1", capacity: 6 },
-    { locationName: "Surabaya", name: "Studio K2 Surabaya", type: "K2", capacity: 8 },
+    { locationName: "Jakarta", name: "Photo Box 3 Jakarta", type: "PHOTO_BOX", capacity: 4 },
+    { locationName: "Jakarta", name: "Photo Box 4 Jakarta", type: "PHOTO_BOX", capacity: 4 },
+    { locationName: "Jakarta", name: "Self Photo 1 Jakarta", type: "SELF_PHOTO", capacity: 10 },
+    { locationName: "Jakarta", name: "Self Photo 2 Jakarta", type: "SELF_PHOTO", capacity: 10 },
+    { locationName: "Surabaya", name: "Studio K1 Surabaya", type: "K1", capacity: 5 },
+    { locationName: "Surabaya", name: "Studio K2 Surabaya", type: "K2", capacity: 15 },
     { locationName: "Surabaya", name: "Photo Box 1 Surabaya", type: "PHOTO_BOX", capacity: 4 },
-    { locationName: "Surabaya", name: "Self Photo 1 Surabaya", type: "SELF_PHOTO", capacity: 4 },
-    { locationName: "Medan", name: "Studio K1 Medan", type: "K1", capacity: 6 },
-    { locationName: "Medan", name: "Studio K2 Medan", type: "K2", capacity: 8 },
+    { locationName: "Surabaya", name: "Photo Box 2 Surabaya", type: "PHOTO_BOX", capacity: 4 },
+    { locationName: "Surabaya", name: "Photo Box 3 Surabaya", type: "PHOTO_BOX", capacity: 4 },
+    { locationName: "Surabaya", name: "Photo Box 4 Surabaya", type: "PHOTO_BOX", capacity: 4 },
+    { locationName: "Surabaya", name: "Self Photo 1 Surabaya", type: "SELF_PHOTO", capacity: 10 },
+    { locationName: "Surabaya", name: "Self Photo 2 Surabaya", type: "SELF_PHOTO", capacity: 10 },
+    { locationName: "Medan", name: "Studio K1 Medan", type: "K1", capacity: 5 },
+    { locationName: "Medan", name: "Studio K2 Medan", type: "K2", capacity: 15 },
     { locationName: "Medan", name: "Photo Box 1 Medan", type: "PHOTO_BOX", capacity: 4 },
-    { locationName: "Medan", name: "Self Photo 1 Medan", type: "SELF_PHOTO", capacity: 4 },
+    { locationName: "Medan", name: "Photo Box 2 Medan", type: "PHOTO_BOX", capacity: 4 },
+    { locationName: "Medan", name: "Photo Box 3 Medan", type: "PHOTO_BOX", capacity: 4 },
+    { locationName: "Medan", name: "Photo Box 4 Medan", type: "PHOTO_BOX", capacity: 4 },
+    { locationName: "Medan", name: "Self Photo 1 Medan", type: "SELF_PHOTO", capacity: 10 },
+    { locationName: "Medan", name: "Self Photo 2 Medan", type: "SELF_PHOTO", capacity: 10 },
 ];
 const PACKAGE_SEEDS = [
     { name: "Family Lite", price: 220000, durationMinutes: 60, maxCapacity: 4 },
@@ -46,6 +57,7 @@ function addMinutes(date, minutes) {
 }
 export const SeedBookingServices = {
     async run() {
+        console.log("Seeding locations...");
         const locations = new Map();
         for (const locationName of LOCATION_NAMES) {
             const existing = await prisma.location.findFirst({
@@ -60,6 +72,8 @@ export const SeedBookingServices = {
             });
             locations.set(locationName, location.id);
         }
+        console.log(`Locations ready: ${locations.size}`);
+        console.log("Seeding studios...");
         for (const studioSeed of STUDIO_SEEDS) {
             const locationId = locations.get(studioSeed.locationName);
             if (!locationId) {
@@ -92,6 +106,8 @@ export const SeedBookingServices = {
                 },
             });
         }
+        console.log(`Studios processed: ${STUDIO_SEEDS.length}`);
+        console.log("Seeding packages...");
         for (const packageSeed of PACKAGE_SEEDS) {
             const existing = await prisma.photoPackage.findFirst({
                 where: { name: packageSeed.name },
@@ -111,6 +127,8 @@ export const SeedBookingServices = {
                 data: packageSeed,
             });
         }
+        console.log(`Packages processed: ${PACKAGE_SEEDS.length}`);
+        console.log("Seeding add-ons...");
         for (const addOnSeed of ADD_ON_SEEDS) {
             const existing = await prisma.addOn.findFirst({
                 where: { name: addOnSeed.name },
@@ -128,6 +146,8 @@ export const SeedBookingServices = {
                 data: addOnSeed,
             });
         }
+        console.log(`Add-ons processed: ${ADD_ON_SEEDS.length}`);
+        console.log("Loading studios for schedules...");
         const studios = await prisma.studio.findMany({
             where: {
                 isActive: true,
@@ -136,7 +156,11 @@ export const SeedBookingServices = {
                 id: true,
             },
         });
+        console.log(`Studios loaded for schedules: ${studios.length}`);
+        console.log("Seeding schedules...");
+        let processedSchedules = 0;
         for (const studio of studios) {
+            console.log(`Seeding schedules for studio ${studio.id}...`);
             for (let dayOffset = 1; dayOffset <= 7; dayOffset += 1) {
                 const day = atUtcDayOffset(dayOffset);
                 for (const slot of DAILY_TIME_SLOTS) {
@@ -156,6 +180,7 @@ export const SeedBookingServices = {
                                 endTime,
                             },
                         });
+                        processedSchedules += 1;
                         continue;
                     }
                     await prisma.schedule.create({
@@ -166,9 +191,11 @@ export const SeedBookingServices = {
                             endTime,
                         },
                     });
+                    processedSchedules += 1;
                 }
             }
         }
+        console.log(`Schedules processed: ${processedSchedules}`);
         const [locationCount, studioCount, packageCount, addOnCount, scheduleCount] = await Promise.all([
             prisma.location.count(),
             prisma.studio.count(),
