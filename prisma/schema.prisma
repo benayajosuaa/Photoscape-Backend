@@ -62,6 +62,7 @@ model Location {
 
   studios  Studio[]
   bookings Booking[]
+  users    User[]
 }
 
 // USER
@@ -72,7 +73,10 @@ model User {
   email     String   @unique
   password  String?
   role      UserRole @default(customer)
+  locationId String?
   createdAt DateTime @default(now())
+
+  location Location? @relation(fields: [locationId], references: [id])
 
   bookings        Booking[]
   createdBookings Booking[] @relation("CreatedBy")
