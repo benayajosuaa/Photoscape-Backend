@@ -1,13 +1,17 @@
 import { Prisma } from "@prisma/client";
-import type { BookingStatus, PaymentStatus, StudioType } from "@prisma/client";
+import type { BookingStatus, PaymentStatus } from "@prisma/client";
 import { prisma } from "../utils/prisma.js";
-import {
-  buildPaymentExpiry,
-  finalizePaidBooking,
-} from "./payment.services.js";
+import { buildPaymentExpiry } from "./payment.services.js";
 
 const ACTIVE_BOOKING_STATUSES: BookingStatus[] = ["pending", "confirmed", "completed"];
 const ADMIN_EDITABLE_BOOKING_STATUSES: BookingStatus[] = ["pending", "confirmed"];
+
+export type AdminActor = {
+  locationId?: string | null;
+  locationName?: string | null;
+  role: "customer" | "admin" | "manager" | "owner";
+  userId: string;
+};
 
 type BookingFilterParams = {
   date?: string;
@@ -63,10 +67,6 @@ const bookingAdminInclude = {
 type AdminBookingRecord = Prisma.BookingGetPayload<{
   include: typeof bookingAdminInclude;
 }>;
-
-function isStudioType(value: string): value is StudioType {
-  return ["K1", "K2", "PHOTO_BOX", "SELF_PHOTO"].includes(value);
-}
 
 function isBookingStatus(value: string): value is BookingStatus {
   return ["pending", "confirmed", "completed", "cancelled", "expired"].includes(value);
@@ -259,6 +259,46 @@ function ensureAdminEditableStatus(status: BookingStatus) {
   }
 }
 
+function isOwner(actor: AdminActor) {
+  return actor.role === "owner";
+}
+
+function getActorLocationId(actor: AdminActor) {
+  if (isOwner(actor)) {
+    return null;
+  }
+
+  if (!actor.locationId) {
+    throw new Error("Admin cabang tidak memiliki lokasi yang terdaftar");
+  }
+
+  return actor.locationId;
+}
+
+function ensureActorCanAccessBooking(actor: AdminActor, bookingLocationId: string) {
+  if (isOwner(actor)) {
+    return;
+  }
+
+  const actorLocationId = getActorLocationId(actor);
+
+  if (actorLocationId !== bookingLocationId) {
+    throw new Error("Anda tidak memiliki akses ke booking cabang ini");
+  }
+}
+
+function ensureActorCanAccessLocation(actor: AdminActor, locationId: string) {
+  if (isOwner(actor)) {
+    return;
+  }
+
+  const actorLocationId = getActorLocationId(actor);
+
+  if (actorLocationId !== locationId) {
+    throw new Error("Anda tidak bisa memindahkan booking ke cabang lain");
+  }
+}
+
 function ensureSlotAvailable(schedule: {
   id: string;
   booking: {
@@ -382,8 +422,13 @@ function buildBookingFilters(params: BookingFilterParams): Prisma.BookingWhereIn
 }
 
 export const AdminBookingServices = {
-  async getBookings(params: BookingFilterParams) {
+  async getBookings(actor: AdminActor, params: BookingFilterParams) {
     const where = buildBookingFilters(params);
+    const actorLocationId = getActorLocationId(actor);
+
+    if (actorLocationId) {
+      where.locationId = actorLocationId;
+    }
 
     const bookings = await prisma.booking.findMany({
       where,
@@ -402,7 +447,7 @@ export const AdminBookingServices = {
     };
   },
 
-  async getBookingDetail(bookingId: string) {
+  async getBookingDetail(actor: AdminActor, bookingId: string) {
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
@@ -419,6 +464,8 @@ export const AdminBookingServices = {
     if (!booking) {
       throw new Error("Booking tidak ditemukan");
     }
+
+    ensureActorCanAccessBooking(actor, booking.locationId);
 
     return {
       booking: serializeBookingForAdmin(booking),
@@ -440,15 +487,20 @@ export const AdminBookingServices = {
     };
   },
 
-  async getBookingLogs(bookingId: string) {
+  async getBookingLogs(actor: AdminActor, bookingId: string) {
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
-      select: { id: true },
+      select: {
+        id: true,
+        locationId: true,
+      },
     });
 
     if (!booking) {
       throw new Error("Booking tidak ditemukan");
     }
+
+    ensureActorCanAccessBooking(actor, booking.locationId);
 
     const logs = await prisma.auditLog.findMany({
       where: { bookingId },
@@ -479,9 +531,10 @@ export const AdminBookingServices = {
     };
   },
 
-  async updateBooking(adminId: string, bookingId: string, payload: UpdateBookingPayload) {
+  async updateBooking(actor: AdminActor, bookingId: string, payload: UpdateBookingPayload) {
     return prisma.$transaction(async tx => {
       const booking = await loadBookingOrThrow(tx, bookingId);
+      ensureActorCanAccessBooking(actor, booking.locationId);
       ensureAdminEditableStatus(booking.status);
 
       const nextCustomerName =
@@ -574,7 +627,7 @@ export const AdminBookingServices = {
       const updatedBooking = await refreshBookingForAdmin(tx, booking.id);
 
       await createAuditLog(tx, {
-        adminId,
+        adminId: actor.userId,
         action: "booking.updated",
         bookingId: booking.id,
         oldData: beforeSnapshot,
@@ -587,7 +640,7 @@ export const AdminBookingServices = {
     });
   },
 
-  async rescheduleBooking(adminId: string, bookingId: string, payload: RescheduleBookingPayload) {
+  async rescheduleBooking(actor: AdminActor, bookingId: string, payload: RescheduleBookingPayload) {
     const nextScheduleId = String(payload.scheduleId ?? "").trim();
 
     if (!nextScheduleId) {
@@ -596,6 +649,7 @@ export const AdminBookingServices = {
 
     return prisma.$transaction(async tx => {
       const booking = await loadBookingOrThrow(tx, bookingId);
+      ensureActorCanAccessBooking(actor, booking.locationId);
       ensureAdminEditableStatus(booking.status);
 
       const nextSchedule = await tx.schedule.findUnique({
@@ -609,6 +663,7 @@ export const AdminBookingServices = {
       if (!nextSchedule) throw new Error("Jadwal tujuan tidak ditemukan");
       if (!nextSchedule.studio.isActive) throw new Error("Studio tujuan sedang tidak aktif");
       if (nextSchedule.startTime <= new Date()) throw new Error("Jadwal tujuan sudah lewat");
+      ensureActorCanAccessLocation(actor, nextSchedule.studio.locationId);
       if (
         booking.participantCount > booking.package.maxCapacity ||
         booking.participantCount > nextSchedule.studio.capacity
@@ -645,7 +700,7 @@ export const AdminBookingServices = {
       const updatedBooking = await refreshBookingForAdmin(tx, booking.id);
 
       await createAuditLog(tx, {
-        adminId,
+        adminId: actor.userId,
         action: "booking.rescheduled",
         bookingId: booking.id,
         oldData: beforeSnapshot,
@@ -658,7 +713,7 @@ export const AdminBookingServices = {
     });
   },
 
-  async cancelBooking(adminId: string, bookingId: string, payload: CancelBookingPayload) {
+  async cancelBooking(actor: AdminActor, bookingId: string, payload: CancelBookingPayload) {
     const reason = String(payload.reason ?? "").trim();
 
     if (!reason) {
@@ -667,6 +722,7 @@ export const AdminBookingServices = {
 
     return prisma.$transaction(async tx => {
       const booking = await loadBookingOrThrow(tx, bookingId);
+      ensureActorCanAccessBooking(actor, booking.locationId);
 
       if (booking.status === "cancelled") {
         throw new Error("Booking sudah dibatalkan");
@@ -704,7 +760,7 @@ export const AdminBookingServices = {
       const updatedBooking = await refreshBookingForAdmin(tx, booking.id);
 
       await createAuditLog(tx, {
-        adminId,
+        adminId: actor.userId,
         action: "booking.cancelled_by_admin",
         bookingId: booking.id,
         oldData: beforeSnapshot,
@@ -721,7 +777,7 @@ export const AdminBookingServices = {
     });
   },
 
-  async updateBookingStatus(adminId: string, bookingId: string, payload: UpdateBookingStatusPayload) {
+  async updateBookingStatus(actor: AdminActor, bookingId: string, payload: UpdateBookingStatusPayload) {
     const nextStatus = String(payload.status ?? "").trim();
 
     if (!isBookingStatus(nextStatus)) {
@@ -729,13 +785,14 @@ export const AdminBookingServices = {
     }
 
     if (nextStatus === "cancelled") {
-      return this.cancelBooking(adminId, bookingId, {
+      return this.cancelBooking(actor, bookingId, {
         reason: payload.reason ?? "Dibatalkan oleh admin",
       });
     }
 
     return prisma.$transaction(async tx => {
       const booking = await loadBookingOrThrow(tx, bookingId);
+      ensureActorCanAccessBooking(actor, booking.locationId);
       const beforeSnapshot = serializeBookingForAdmin(booking);
 
       if (booking.status === nextStatus) {
@@ -767,7 +824,7 @@ export const AdminBookingServices = {
           data: {
             status: "used",
             scannedAt: new Date(),
-            scannedById: adminId,
+            scannedById: actor.userId,
           },
         });
       }
@@ -775,7 +832,7 @@ export const AdminBookingServices = {
       const updatedBooking = await refreshBookingForAdmin(tx, booking.id);
 
       await createAuditLog(tx, {
-        adminId,
+        adminId: actor.userId,
         action: "booking.status_updated",
         bookingId: booking.id,
         oldData: beforeSnapshot,

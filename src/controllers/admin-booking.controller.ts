@@ -1,16 +1,21 @@
 import type { Request, Response } from "express";
-import { AdminBookingServices } from "../services/admin-booking.service.js";
+import { AdminBookingServices, type AdminActor } from "../services/admin-booking.service.js";
 
 function getSingleValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function getAuthenticatedUserId(req: Request) {
+function getAuthenticatedActor(req: Request): AdminActor {
   if (!req.user?.userId) {
     throw new Error("Unauthorized");
   }
 
-  return req.user.userId;
+  return {
+    locationId: req.user.locationId ?? null,
+    locationName: req.user.locationName ?? null,
+    role: req.user.role,
+    userId: req.user.userId,
+  };
 }
 
 function sendError(res: Response, error: any, fallbackMessage: string) {
@@ -28,7 +33,8 @@ export const AdminBookingController = {
       const date = getSingleValue(req.query.date as string | string[] | undefined)?.trim();
       const search = getSingleValue(req.query.search as string | string[] | undefined)?.trim();
       const status = getSingleValue(req.query.status as string | string[] | undefined)?.trim();
-      const data = await AdminBookingServices.getBookings({
+      const actor = getAuthenticatedActor(req);
+      const data = await AdminBookingServices.getBookings(actor, {
         ...(date ? { date } : {}),
         ...(search ? { search } : {}),
         ...(status ? { status } : {}),
@@ -45,8 +51,9 @@ export const AdminBookingController = {
 
   async getBookingDetail(req: Request, res: Response) {
     try {
+      const actor = getAuthenticatedActor(req);
       const bookingId = getSingleValue(req.params.bookingId)?.trim() ?? "";
-      const data = await AdminBookingServices.getBookingDetail(bookingId);
+      const data = await AdminBookingServices.getBookingDetail(actor, bookingId);
 
       return res.status(200).json({
         message: "booking detail loaded",
@@ -59,8 +66,9 @@ export const AdminBookingController = {
 
   async getBookingLogs(req: Request, res: Response) {
     try {
+      const actor = getAuthenticatedActor(req);
       const bookingId = getSingleValue(req.params.bookingId)?.trim() ?? "";
-      const data = await AdminBookingServices.getBookingLogs(bookingId);
+      const data = await AdminBookingServices.getBookingLogs(actor, bookingId);
 
       return res.status(200).json({
         message: "booking logs loaded",
@@ -73,9 +81,9 @@ export const AdminBookingController = {
 
   async updateBooking(req: Request, res: Response) {
     try {
-      const adminId = getAuthenticatedUserId(req);
+      const actor = getAuthenticatedActor(req);
       const bookingId = getSingleValue(req.params.bookingId)?.trim() ?? "";
-      const data = await AdminBookingServices.updateBooking(adminId, bookingId, req.body);
+      const data = await AdminBookingServices.updateBooking(actor, bookingId, req.body);
 
       return res.status(200).json({
         message: "booking updated",
@@ -88,9 +96,9 @@ export const AdminBookingController = {
 
   async rescheduleBooking(req: Request, res: Response) {
     try {
-      const adminId = getAuthenticatedUserId(req);
+      const actor = getAuthenticatedActor(req);
       const bookingId = getSingleValue(req.params.bookingId)?.trim() ?? "";
-      const data = await AdminBookingServices.rescheduleBooking(adminId, bookingId, req.body);
+      const data = await AdminBookingServices.rescheduleBooking(actor, bookingId, req.body);
 
       return res.status(200).json({
         message: "booking rescheduled",
@@ -103,9 +111,9 @@ export const AdminBookingController = {
 
   async cancelBooking(req: Request, res: Response) {
     try {
-      const adminId = getAuthenticatedUserId(req);
+      const actor = getAuthenticatedActor(req);
       const bookingId = getSingleValue(req.params.bookingId)?.trim() ?? "";
-      const data = await AdminBookingServices.cancelBooking(adminId, bookingId, req.body);
+      const data = await AdminBookingServices.cancelBooking(actor, bookingId, req.body);
 
       return res.status(200).json({
         message: "booking cancelled",
@@ -118,9 +126,9 @@ export const AdminBookingController = {
 
   async updateBookingStatus(req: Request, res: Response) {
     try {
-      const adminId = getAuthenticatedUserId(req);
+      const actor = getAuthenticatedActor(req);
       const bookingId = getSingleValue(req.params.bookingId)?.trim() ?? "";
-      const data = await AdminBookingServices.updateBookingStatus(adminId, bookingId, req.body);
+      const data = await AdminBookingServices.updateBookingStatus(actor, bookingId, req.body);
 
       return res.status(200).json({
         message: "booking status updated",
