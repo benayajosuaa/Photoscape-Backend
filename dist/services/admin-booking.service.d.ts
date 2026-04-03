@@ -1,4 +1,10 @@
 import { Prisma } from "@prisma/client";
+export type AdminActor = {
+    locationId?: string | null;
+    locationName?: string | null;
+    role: "customer" | "admin" | "manager" | "owner";
+    userId: string;
+};
 type BookingFilterParams = {
     date?: string;
     search?: string;
@@ -26,7 +32,7 @@ type UpdateBookingStatusPayload = {
     reason?: string;
 };
 export declare const AdminBookingServices: {
-    getBookings(params: BookingFilterParams): Promise<{
+    getBookings(actor: AdminActor, params: BookingFilterParams): Promise<{
         total: number;
         filters: {
             date: string | null;
@@ -117,7 +123,7 @@ export declare const AdminBookingServices: {
             } | null;
         }[];
     }>;
-    getBookingDetail(bookingId: string): Promise<{
+    getBookingDetail(actor: AdminActor, bookingId: string): Promise<{
         booking: {
             bookingId: string;
             bookingCode: string;
@@ -215,7 +221,7 @@ export declare const AdminBookingServices: {
             newData: Prisma.JsonValue;
         }[];
     }>;
-    getBookingLogs(bookingId: string): Promise<{
+    getBookingLogs(actor: AdminActor, bookingId: string): Promise<{
         bookingId: string;
         total: number;
         logs: {
@@ -232,7 +238,7 @@ export declare const AdminBookingServices: {
             newData: Prisma.JsonValue;
         }[];
     }>;
-    updateBooking(adminId: string, bookingId: string, payload: UpdateBookingPayload): Promise<{
+    updateBooking(actor: AdminActor, bookingId: string, payload: UpdateBookingPayload): Promise<{
         bookingId: string;
         bookingCode: string;
         createdAt: string;
@@ -315,7 +321,7 @@ export declare const AdminBookingServices: {
             scannedAt: string | null;
         } | null;
     }>;
-    rescheduleBooking(adminId: string, bookingId: string, payload: RescheduleBookingPayload): Promise<{
+    rescheduleBooking(actor: AdminActor, bookingId: string, payload: RescheduleBookingPayload): Promise<{
         bookingId: string;
         bookingCode: string;
         createdAt: string;
@@ -398,7 +404,7 @@ export declare const AdminBookingServices: {
             scannedAt: string | null;
         } | null;
     }>;
-    cancelBooking(adminId: string, bookingId: string, payload: CancelBookingPayload): Promise<{
+    cancelBooking(actor: AdminActor, bookingId: string, payload: CancelBookingPayload): Promise<{
         booking: {
             bookingId: string;
             bookingCode: string;
@@ -484,7 +490,7 @@ export declare const AdminBookingServices: {
         };
         reason: string;
     }>;
-    updateBookingStatus(adminId: string, bookingId: string, payload: UpdateBookingStatusPayload): Promise<{
+    updateBookingStatus(actor: AdminActor, bookingId: string, payload: UpdateBookingStatusPayload): Promise<{
         bookingId: string;
         bookingCode: string;
         createdAt: string;

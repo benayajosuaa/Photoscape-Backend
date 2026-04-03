@@ -1,0 +1,1 @@
+{"version":3,"file":"route.js","sourceRoot":"","sources":["../../../../../src/app/api/auth/logout/route.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,gBAAgB,EAAE,MAAM,4CAA4C,CAAC;AAE9E,MAAM,CAAC,KAAK,UAAU,IAAI,CAAC,GAAY;IACrC,OAAO,gBAAgB,CAAC,GAAG,CAAC,CAAC;AAC/B,CAAC"}
