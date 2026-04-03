@@ -4,6 +4,8 @@ import { verifyToken } from '../utils/jwt.js';
 
 type AuthenticatedUser = {
   email: string;
+  locationId?: string | null;
+  locationName?: string | null;
   role: UserRole;
   userId: string;
 };

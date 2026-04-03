@@ -18,11 +18,52 @@ function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
-function sanitizeUser(user: Pick<PrismaUser, 'createdAt' | 'email' | 'id' | 'name' | 'role'>) {
+type SanitizedUserInput = Pick<PrismaUser, 'createdAt' | 'email' | 'id' | 'name' | 'role' | 'locationId'> & {
+  location?: {
+    id: string;
+    name: string;
+  } | null;
+};
+
+async function findOrCreateLocationByName(name: string) {
+  const normalizedName = name.trim();
+
+  if (!normalizedName) {
+    throw new Error("Nama lokasi admin tidak valid");
+  }
+
+  const existing = await prisma.location.findFirst({
+    where: {
+      name: {
+        equals: normalizedName,
+        mode: 'insensitive',
+      },
+    },
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  return prisma.location.create({
+    data: {
+      name: normalizedName,
+    },
+  });
+}
+
+function sanitizeUser(user: SanitizedUserInput) {
   return {
     createdAt: user.createdAt,
     email: user.email,
     id: user.id,
+    location: user.location
+      ? {
+          id: user.location.id,
+          name: user.location.name,
+        }
+      : null,
+    locationId: user.locationId ?? null,
     name: user.name,
     role: user.role as UserRole,
   };
@@ -76,6 +117,9 @@ export async function completeRegistration(email: string) {
       password: pendingUser.password,
       role: toPrismaRole('customer'),
     },
+    include: {
+      location: true,
+    },
   });
 
   pendingRegistrations.delete(normalizedEmail);
@@ -87,6 +131,9 @@ export async function loginUser(email: string, password: string) {
   const normalizedEmail = normalizeEmail(email);
   const user = await prisma.user.findUnique({
     where: { email: normalizedEmail },
+    include: {
+      location: true,
+    },
   });
 
   if (!user && pendingRegistrations.has(normalizedEmail)) {
@@ -101,6 +148,8 @@ export async function loginUser(email: string, password: string) {
 
   const token = generateToken({
     email: user.email,
+    locationId: user.locationId ?? null,
+    locationName: user.location?.name ?? null,
     role: user.role,
     userId: user.id,
   });
@@ -118,6 +167,9 @@ export function hasPendingRegistration(email: string) {
 export async function findUserByEmail(email: string) {
   const user = await prisma.user.findUnique({
     where: { email: normalizeEmail(email) },
+    include: {
+      location: true,
+    },
   });
 
   return user ? sanitizeUser(user) : null;
@@ -137,6 +189,9 @@ export async function assignUserRole(email: string, role: UserRole) {
   const user = await prisma.user.update({
     where: { email: normalizedEmail },
     data: { role: toPrismaRole(role) },
+    include: {
+      location: true,
+    },
   });
 
   return sanitizeUser(user);
@@ -144,30 +199,41 @@ export async function assignUserRole(email: string, role: UserRole) {
 
 export async function seedPrivilegedUser(params: {
   email: string | undefined;
+  locationName?: string | undefined;
   name: string | undefined;
   password: string | undefined;
   role: UserRole;
 }) {
-  const { email, name, password, role } = params;
+  const { email, locationName, name, password, role } = params;
 
   if (!email || !password) {
     return null;
   }
+
+  const location =
+    role === 'owner' || !locationName
+      ? null
+      : await findOrCreateLocationByName(locationName);
 
   const normalizedEmail = normalizeEmail(email);
   const hashed = await bcrypt.hash(password, 10);
   const user = await prisma.user.upsert({
     where: { email: normalizedEmail },
     update: {
+      locationId: location?.id ?? null,
       name: name ?? role,
       password: hashed,
       role: toPrismaRole(role),
     },
     create: {
       email: normalizedEmail,
+      locationId: location?.id ?? null,
       name: name ?? role,
       password: hashed,
       role: toPrismaRole(role),
+    },
+    include: {
+      location: true,
     },
   });
 
