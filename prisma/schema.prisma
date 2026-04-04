@@ -47,6 +47,17 @@ enum PaymentMethod {
   cash
 }
 
+enum NotificationType {
+  booking_confirmation
+  payment_pending
+  payment_paid
+  payment_failed
+  booking_reminder
+  schedule_changed
+  booking_cancelled
+  admin_alert
+}
+
 enum StudioType {
   K1
   K2
@@ -184,6 +195,7 @@ model Booking {
 
   auditLogs AuditLog[]
   ticket    Ticket?
+  notifications Notification[]
 }
 
 // TIKET
@@ -227,14 +239,18 @@ model Payment {
 // NOTIFICATION
 
 model Notification {
-  id        String   @id @default(uuid())
+  id        String           @id @default(uuid())
   userId    String
+  bookingId String?
+  type      NotificationType
   title     String
   message   String
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
+  metadata  Json?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
 
-  user User @relation(fields: [userId], references: [id])
+  user    User     @relation(fields: [userId], references: [id])
+  booking Booking? @relation(fields: [bookingId], references: [id])
 }
 
 // AUDIT LOG
