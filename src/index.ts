@@ -9,6 +9,7 @@ import { authenticateExpress, requireRoles } from "./middlewares/auth.middleware
 import adminBookingRoute from "./routes/admin-booking.route.js";
 import bookingRoute from "./routes/booking.route.js";
 import notificationRoute from "./routes/notification.route.js";
+import operationsReportRoute from "./routes/operations-report.route.js";
 import { seedPrivilegedUser } from "./services/auth.service.js";
 import { NotificationServices } from "./services/notification.service.js";
 
@@ -86,6 +87,7 @@ app.get("/api/auth/me", authenticateExpress, meExpressController);
 app.get("/api/admin/users/find", authenticateExpress, requireRoles("owner", "admin", "manager"), findUserExpressController);
 app.patch("/api/admin/users/role", authenticateExpress, requireRoles("owner"), assignRoleExpressController);
 app.use("/api/admin/bookings", adminBookingRoute);
+app.use("/api/admin", operationsReportRoute);
 app.use("/api/bookings", bookingRoute);
 app.use("/api/notifications", notificationRoute);
 

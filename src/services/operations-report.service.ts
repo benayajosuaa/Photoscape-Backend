@@ -223,8 +223,9 @@ async function buildBookingWhere(actor: ReportActor, filters: BookingReportFilte
 
   if (filters.studioId?.trim()) {
     where.schedule = {
-      ...(where.schedule && !("is" in where.schedule) ? where.schedule : {}),
-      studioId: filters.studioId.trim(),
+      is: {
+        studioId: filters.studioId.trim(),
+      },
     };
   }
 
@@ -320,19 +321,26 @@ function summarizePaymentMethods(bookings: ReportBookingRecord[]) {
 
 export const OperationsReportServices = {
   async getDashboardSummary(actor: ReportActor, filters: CommonReportFilters) {
-    const [{ bookings, period, resolvedLocationId }, studios, auditLogCount] = await Promise.all([
+    const parsedPeriod = parsePeriod(filters);
+    const [{ bookings, period, resolvedLocationId }, studios] = await Promise.all([
       loadBookings(actor, filters),
       loadStudios(actor, filters),
-      prisma.auditLog.count({
-        where: {
-          createdAt: {
-            gte: parsePeriod(filters).start,
-            lte: parsePeriod(filters).end,
-          },
-          booking: resolvedLocationId ? { locationId: resolvedLocationId } : undefined,
-        },
-      }),
     ]);
+    const auditLogCount = await prisma.auditLog.count({
+      where: {
+        createdAt: {
+          gte: parsedPeriod.start,
+          lte: parsedPeriod.end,
+        },
+        ...(resolvedLocationId
+          ? {
+              booking: {
+                locationId: resolvedLocationId,
+              },
+            }
+          : {}),
+      },
+    });
 
     const paidBookings = bookings.filter(item => item.payment?.status === "paid");
     const todayStart = startOfDay(new Date());
@@ -423,6 +431,11 @@ export const OperationsReportServices = {
   async getBookingReport(actor: ReportActor, filters: BookingReportFilters) {
     const { bookings, period, resolvedLocationId } = await loadBookings(actor, filters);
     const normalizedStatus = filters.bookingStatus?.trim();
+
+    if (normalizedStatus && !isBookingStatus(normalizedStatus)) {
+      throw new Error("Status booking tidak valid");
+    }
+
     const filteredBookings =
       normalizedStatus && isBookingStatus(normalizedStatus)
         ? bookings.filter(item => item.status === normalizedStatus)
