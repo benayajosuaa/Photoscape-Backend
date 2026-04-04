@@ -11,18 +11,40 @@ function getMailConfig() {
   return { mailPass, mailUser };
 }
 
-export async function sendOTPEmail(email: string, otp: string) {
+function createTransporter() {
   const { mailPass, mailUser } = getMailConfig();
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: mailUser,
-      pass: mailPass
-    }
-  });
+
+  return {
+    mailUser,
+    transporter: nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: mailUser,
+        pass: mailPass
+      }
+    })
+  };
+}
+
+export async function sendEmail(params: {
+  html?: string;
+  subject: string;
+  text: string;
+  to: string;
+}) {
+  const { mailUser, transporter } = createTransporter();
 
   await transporter.sendMail({
     from: mailUser,
+    to: params.to,
+    subject: params.subject,
+    text: params.text,
+    ...(params.html ? { html: params.html } : {})
+  });
+}
+
+export async function sendOTPEmail(email: string, otp: string) {
+  await sendEmail({
     to: email,
     subject: 'Kode OTP',
     text: `Kode OTP kamu: ${otp}`

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { BookingStatus, PaymentStatus } from "@prisma/client";
 import { prisma } from "../utils/prisma.js";
 import { buildPaymentExpiry } from "./payment.services.js";
+import { NotificationServices } from "./notification.service.js";
 
 const ACTIVE_BOOKING_STATUSES: BookingStatus[] = ["pending", "confirmed", "completed"];
 const ADMIN_EDITABLE_BOOKING_STATUSES: BookingStatus[] = ["pending", "confirmed"];
@@ -132,6 +133,12 @@ function getManagementStatusLabel(bookingStatus: BookingStatus, paymentStatus: P
   if (bookingStatus === "pending" && paymentStatus === "failed") return "Pending / Payment Failed";
   if (bookingStatus === "pending") return "Pending";
   return bookingStatus;
+}
+
+function getActorLabel(actor: AdminActor) {
+  if (actor.role === "owner") return "Owner";
+  if (actor.role === "manager") return "Manager";
+  return "Admin";
 }
 
 function serializeBookingForAdmin(booking: AdminBookingRecord) {
@@ -532,7 +539,7 @@ export const AdminBookingServices = {
   },
 
   async updateBooking(actor: AdminActor, bookingId: string, payload: UpdateBookingPayload) {
-    return prisma.$transaction(async tx => {
+    const result = await prisma.$transaction(async tx => {
       const booking = await loadBookingOrThrow(tx, bookingId);
       ensureActorCanAccessBooking(actor, booking.locationId);
       ensureAdminEditableStatus(booking.status);
@@ -638,6 +645,15 @@ export const AdminBookingServices = {
 
       return serializeBookingForAdmin(updatedBooking);
     });
+
+    await NotificationServices.notifyAdminBookingUpdated({
+      actorName: getActorLabel(actor),
+      bookingId: result.bookingId,
+      message: `Booking ${result.bookingCode} diperbarui`,
+      title: "Booking diperbarui",
+    });
+
+    return result;
   },
 
   async rescheduleBooking(actor: AdminActor, bookingId: string, payload: RescheduleBookingPayload) {
@@ -647,7 +663,7 @@ export const AdminBookingServices = {
       throw new Error("scheduleId wajib diisi");
     }
 
-    return prisma.$transaction(async tx => {
+    const result = await prisma.$transaction(async tx => {
       const booking = await loadBookingOrThrow(tx, bookingId);
       ensureActorCanAccessBooking(actor, booking.locationId);
       ensureAdminEditableStatus(booking.status);
@@ -711,6 +727,13 @@ export const AdminBookingServices = {
 
       return serializeBookingForAdmin(updatedBooking);
     });
+
+    await NotificationServices.notifyScheduleChanged({
+      actorName: getActorLabel(actor),
+      bookingId: result.bookingId,
+    });
+
+    return result;
   },
 
   async cancelBooking(actor: AdminActor, bookingId: string, payload: CancelBookingPayload) {
@@ -720,7 +743,7 @@ export const AdminBookingServices = {
       throw new Error("Alasan pembatalan wajib diisi");
     }
 
-    return prisma.$transaction(async tx => {
+    const result = await prisma.$transaction(async tx => {
       const booking = await loadBookingOrThrow(tx, bookingId);
       ensureActorCanAccessBooking(actor, booking.locationId);
 
@@ -772,9 +795,29 @@ export const AdminBookingServices = {
 
       return {
         booking: serializeBookingForAdmin(updatedBooking),
+        hadPendingPayment: Boolean(booking.payment && booking.payment.status === "pending"),
         reason,
       };
     });
+
+    await NotificationServices.notifyBookingCancelled({
+      actorName: getActorLabel(actor),
+      bookingId: result.booking.bookingId,
+      cancelledBy: "admin",
+      reason: result.reason,
+    });
+
+    if (result.hadPendingPayment) {
+      await NotificationServices.notifyPaymentFailed(
+        result.booking.bookingId,
+        "Pembayaran dinyatakan gagal karena booking dibatalkan oleh admin."
+      );
+    }
+
+    return {
+      booking: result.booking,
+      reason: result.reason,
+    };
   },
 
   async updateBookingStatus(actor: AdminActor, bookingId: string, payload: UpdateBookingStatusPayload) {
@@ -790,7 +833,7 @@ export const AdminBookingServices = {
       });
     }
 
-    return prisma.$transaction(async tx => {
+    const result = await prisma.$transaction(async tx => {
       const booking = await loadBookingOrThrow(tx, bookingId);
       ensureActorCanAccessBooking(actor, booking.locationId);
       const beforeSnapshot = serializeBookingForAdmin(booking);
@@ -844,6 +887,15 @@ export const AdminBookingServices = {
 
       return serializeBookingForAdmin(updatedBooking);
     });
+
+    await NotificationServices.notifyAdminBookingUpdated({
+      actorName: getActorLabel(actor),
+      bookingId: result.bookingId,
+      message: `Status booking ${result.bookingCode} diubah menjadi ${result.status.booking}`,
+      title: "Status booking berubah",
+    });
+
+    return result;
   },
 
 };

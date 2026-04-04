@@ -1,5 +1,6 @@
 import type { PaymentMethod, PaymentStatus, Prisma } from "@prisma/client";
 import { prisma } from "../utils/prisma.js";
+import { NotificationServices } from "./notification.service.js";
 
 export const PENDING_BOOKING_WINDOW_MINUTES = 15;
 export const VA_AUTO_SUCCESS_SECONDS = 20;
@@ -31,6 +32,7 @@ export function buildTicketQrCode(bookingCode: string) {
 
 export async function expireStaleBookings() {
   const now = new Date();
+  const expiredPendingPaymentBookingIds: string[] = [];
 
   await prisma.$transaction(async tx => {
     const staleBookings = await tx.booking.findMany({
@@ -58,6 +60,9 @@ export async function expireStaleBookings() {
 
     const bookingIds = staleBookings.map(item => item.id);
     const paymentIds = staleBookings.flatMap(item => item.payment?.status === "pending" ? [item.payment.id] : []);
+    expiredPendingPaymentBookingIds.push(
+      ...staleBookings.filter(item => item.payment?.status === "pending").map(item => item.id)
+    );
 
     await tx.booking.updateMany({
       where: {
@@ -84,6 +89,13 @@ export async function expireStaleBookings() {
       });
     }
   });
+
+  for (const bookingId of expiredPendingPaymentBookingIds) {
+    await NotificationServices.notifyPaymentFailed(
+      bookingId,
+      "Pembayaran tidak diselesaikan sampai melewati batas waktu."
+    );
+  }
 }
 
 export async function finalizePaidBooking(tx: Prisma.TransactionClient, paymentId: string, paidAt: Date) {
@@ -178,6 +190,17 @@ export async function settleDueVirtualAccountPayments() {
     await prisma.$transaction(async tx => {
       await finalizePaidBooking(tx, payment.id, new Date());
     });
+
+    const finalizedPayment = await prisma.payment.findUnique({
+      where: { id: payment.id },
+      select: {
+        bookingId: true,
+      },
+    });
+
+    if (finalizedPayment) {
+      await NotificationServices.notifyPaymentPaid(finalizedPayment.bookingId);
+    }
   }
 }
 
@@ -288,6 +311,8 @@ export async function confirmQrisPaymentFromPage(paymentId: string) {
       },
     });
   });
+
+  await NotificationServices.notifyPaymentPaid(payment.bookingId);
 
   return renderQrisResultPage({
     title: "Pembayaran Berhasil",

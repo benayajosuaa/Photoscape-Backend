@@ -15,6 +15,7 @@ import {
   isVirtualAccountMethod,
   syncBookingPayments,
 } from "./payment.services.js";
+import { NotificationServices } from "./notification.service.js";
 
 type BookingMetaParams = {
   locationId?: string;
@@ -40,6 +41,10 @@ type CreateBookingPayload = {
     addOnId: string;
     quantity?: number;
   }>;
+};
+
+type CancelBookingPayload = {
+  reason?: string;
 };
 
 type CreatedBookingResponse = Prisma.BookingGetPayload<{
@@ -390,7 +395,7 @@ export const BookingServices = {
     if (!isStudioType(studioType)) throw new Error("Jenis studio tidak valid");
     if (!Number.isInteger(participantCount) || participantCount < 1) throw new Error("participantCount tidak valid");
 
-    return prisma.$transaction(async tx => {
+    const result = await prisma.$transaction(async tx => {
       const [photoPackage, schedule, user] = await Promise.all([
         tx.photoPackage.findUnique({
           where: { id: packageId },
@@ -533,6 +538,10 @@ export const BookingServices = {
         },
       };
     });
+
+    await NotificationServices.notifyBookingCreated(result.bookingId);
+
+    return result;
   },
 
   async getSummary(userId: string, bookingId: string) {
@@ -548,7 +557,7 @@ export const BookingServices = {
       throw new Error("Metode pembayaran tidak valid");
     }
 
-    return prisma.$transaction(async tx => {
+    const result = await prisma.$transaction(async tx => {
       const booking = await tx.booking.findFirst({
         where: {
           id: bookingId,
@@ -604,12 +613,16 @@ export const BookingServices = {
         instructions: getPaymentInstructions(payment.method),
       };
     });
+
+    await NotificationServices.notifyPaymentPending(result.bookingId);
+
+    return result;
   },
 
   async confirmPayment(userId: string, bookingId: string) {
     await syncBookingPayments();
 
-    return prisma.$transaction(async tx => {
+    const result = await prisma.$transaction(async tx => {
       const booking = await tx.booking.findFirst({
         where: {
           id: bookingId,
@@ -646,6 +659,85 @@ export const BookingServices = {
         },
       };
     });
+
+    await NotificationServices.notifyPaymentPaid(result.bookingId);
+
+    return result;
+  },
+
+  async cancelBooking(userId: string, bookingId: string, payload: CancelBookingPayload) {
+    const reason = String(payload.reason ?? "").trim() || "Dibatalkan oleh pengguna";
+
+    const result = await prisma.$transaction(async tx => {
+      const booking = await tx.booking.findFirst({
+        where: {
+          id: bookingId,
+          userId,
+        },
+        include: {
+          payment: true,
+          ticket: true,
+          user: true,
+        },
+      });
+
+      if (!booking) throw new Error("Booking tidak ditemukan");
+      if (booking.status === "cancelled") throw new Error("Booking sudah dibatalkan");
+      if (booking.status === "completed") throw new Error("Booking yang sudah selesai tidak bisa dibatalkan");
+
+      await tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          status: "cancelled",
+        },
+      });
+
+      if (booking.payment && booking.payment.status === "pending") {
+        await tx.payment.update({
+          where: { id: booking.payment.id },
+          data: {
+            expiredAt: new Date(),
+            status: "failed",
+          },
+        });
+      }
+
+      if (booking.ticket) {
+        await tx.ticket.update({
+          where: { bookingId: booking.id },
+          data: {
+            expiredAt: new Date(),
+            status: "expired",
+          },
+        });
+      }
+
+      return {
+        bookingId: booking.id,
+        hadPendingPayment: Boolean(booking.payment && booking.payment.status === "pending"),
+        reason,
+        userName: booking.user?.name ?? booking.customerName,
+      };
+    });
+
+    await NotificationServices.notifyBookingCancelled({
+      actorName: result.userName,
+      bookingId: result.bookingId,
+      cancelledBy: "customer",
+      reason: result.reason,
+    });
+    if (result.hadPendingPayment) {
+      await NotificationServices.notifyPaymentFailed(
+        result.bookingId,
+        "Pembayaran dibatalkan karena booking dibatalkan oleh pengguna."
+      );
+    }
+
+    return {
+      bookingId: result.bookingId,
+      reason: result.reason,
+      status: "cancelled",
+    };
   },
 
   async getTicket(userId: string, bookingId: string) {
