@@ -7,17 +7,31 @@ function getMailConfig() {
     }
     return { mailPass, mailUser };
 }
-export async function sendOTPEmail(email, otp) {
+function createTransporter() {
     const { mailPass, mailUser } = getMailConfig();
-    const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-            user: mailUser,
-            pass: mailPass
-        }
-    });
+    return {
+        mailUser,
+        transporter: nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+                user: mailUser,
+                pass: mailPass
+            }
+        })
+    };
+}
+export async function sendEmail(params) {
+    const { mailUser, transporter } = createTransporter();
     await transporter.sendMail({
         from: mailUser,
+        to: params.to,
+        subject: params.subject,
+        text: params.text,
+        ...(params.html ? { html: params.html } : {})
+    });
+}
+export async function sendOTPEmail(email, otp) {
+    await sendEmail({
         to: email,
         subject: 'Kode OTP',
         text: `Kode OTP kamu: ${otp}`

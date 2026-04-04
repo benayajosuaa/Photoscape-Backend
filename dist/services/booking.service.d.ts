@@ -3,10 +3,10 @@ type BookingMetaParams = {
     studioType?: string;
 };
 type AvailabilityParams = {
-    date: string;
+    date?: string;
     locationId: string;
-    packageId: string;
-    studioType: string;
+    packageId?: string;
+    studioType?: string;
 };
 type CreateBookingPayload = {
     customerName?: string;
@@ -20,6 +20,9 @@ type CreateBookingPayload = {
         addOnId: string;
         quantity?: number;
     }>;
+};
+type CancelBookingPayload = {
+    reason?: string;
 };
 export declare const BookingServices: {
     getMeta(params: BookingMetaParams): Promise<{
@@ -64,7 +67,7 @@ export declare const BookingServices: {
             price: number;
             maxCapacity: number;
         };
-        studioType: import(".prisma/client").$Enums.StudioType;
+        studioType: string | null;
         studios: {
             name: string;
             id: string;
@@ -93,6 +96,54 @@ export declare const BookingServices: {
             status: "available" | "unavailable";
             reason: string | null;
         }[];
+        packages?: never;
+    } | {
+        location: {
+            name: string;
+            id: string;
+        };
+        date: string;
+        studioType: string | null;
+        studios: {
+            name: string;
+            id: string;
+            locationId: string;
+            type: import(".prisma/client").$Enums.StudioType;
+            capacity: number;
+            isActive: boolean;
+        }[];
+        packages: {
+            package: {
+                id: string;
+                name: string;
+                durationMinutes: number;
+                price: number;
+                maxCapacity: number;
+            };
+            slots: {
+                scheduleId: string;
+                studioId: string;
+                studioName: string;
+                studioType: import(".prisma/client").$Enums.StudioType;
+                startTime: string;
+                endTime: string;
+                status: "available" | "unavailable";
+                reason: string | null;
+            }[];
+            availableSlots: {
+                scheduleId: string;
+                studioId: string;
+                studioName: string;
+                studioType: import(".prisma/client").$Enums.StudioType;
+                startTime: string;
+                endTime: string;
+                status: "available" | "unavailable";
+                reason: string | null;
+            }[];
+        }[];
+        package?: never;
+        slots?: never;
+        availableSlots?: never;
     }>;
     createBooking(userId: string, payload: CreateBookingPayload): Promise<{
         bookingId: string;
@@ -200,6 +251,11 @@ export declare const BookingServices: {
             qrCode: string;
             expiredAt: string;
         };
+    }>;
+    cancelBooking(userId: string, bookingId: string, payload: CancelBookingPayload): Promise<{
+        bookingId: string;
+        reason: string;
+        status: string;
     }>;
     getTicket(userId: string, bookingId: string): Promise<{
         bookingId: string;

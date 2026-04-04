@@ -6,7 +6,9 @@ import { assignRoleExpressController, findUserExpressController, loginExpressCon
 import { authenticateExpress, requireRoles } from "./middlewares/auth.middleware.js";
 import adminBookingRoute from "./routes/admin-booking.route.js";
 import bookingRoute from "./routes/booking.route.js";
+import notificationRoute from "./routes/notification.route.js";
 import { seedPrivilegedUser } from "./services/auth.service.js";
+import { NotificationServices } from "./services/notification.service.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
@@ -70,6 +72,8 @@ app.get("/api/admin/users/find", authenticateExpress, requireRoles("owner", "adm
 app.patch("/api/admin/users/role", authenticateExpress, requireRoles("owner"), assignRoleExpressController);
 app.use("/api/admin/bookings", adminBookingRoute);
 app.use("/api/bookings", bookingRoute);
+app.use("/api/notifications", notificationRoute);
+NotificationServices.startJobs();
 // Serverless
 export default app;
 // Local

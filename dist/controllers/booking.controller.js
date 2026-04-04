@@ -159,5 +159,22 @@ export const BookingController = {
             });
         }
     },
+    async cancelBooking(req, res) {
+        try {
+            const userId = getAuthenticatedUserId(req);
+            const bookingId = getSingleValue(req.params.bookingId)?.trim() ?? "";
+            const data = await BookingServices.cancelBooking(userId, bookingId, req.body);
+            return res.status(200).json({
+                message: "booking cancelled",
+                data,
+            });
+        }
+        catch (error) {
+            console.error(error);
+            return res.status(400).json({
+                message: error.message ?? "failed to cancel booking",
+            });
+        }
+    },
 };
 //# sourceMappingURL=booking.controller.js.map

@@ -23,10 +23,10 @@ type BookingMetaParams = {
 };
 
 type AvailabilityParams = {
-  date: string;
+  date?: string;
   locationId: string;
-  packageId: string;
-  studioType: string;
+  packageId?: string;
+  studioType?: string;
 };
 
 type CreateBookingPayload = {
@@ -64,6 +64,17 @@ type CreatedBookingResponse = Prisma.BookingGetPayload<{
   };
 }>;
 
+type AvailabilitySchedule = Prisma.ScheduleGetPayload<{
+  include: {
+    studio: true;
+    booking: {
+      include: {
+        payment: true;
+      };
+    };
+  };
+}>;
+
 function isStudioType(value: string): value is StudioType {
   return ["K1", "K2", "PHOTO_BOX", "SELF_PHOTO"].includes(value);
 }
@@ -92,6 +103,44 @@ function addMinutes(date: Date, minutes: number) {
 
 function formatMoney(value: number) {
   return Number(value.toFixed(2));
+}
+
+function mapScheduleToSlot(schedule: AvailabilitySchedule, packageDurationMinutes: number, now: Date) {
+  const booking = schedule.booking;
+  const isPast = schedule.startTime <= now;
+  const hasLongEnoughDuration =
+    schedule.endTime.getTime() - schedule.startTime.getTime() >= packageDurationMinutes * 60 * 1000;
+
+  const bookingBlocksSlot = Boolean(
+    booking &&
+      ACTIVE_BOOKING_STATUSES.includes(booking.status) &&
+      (booking.status !== "pending" || addMinutes(booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > now)
+  );
+
+  let status: "available" | "unavailable" = "available";
+  let reason: string | null = null;
+
+  if (isPast) {
+    status = "unavailable";
+    reason = "Jadwal sudah lewat";
+  } else if (!hasLongEnoughDuration) {
+    status = "unavailable";
+    reason = "Durasi slot tidak cukup untuk paket ini";
+  } else if (bookingBlocksSlot) {
+    status = "unavailable";
+    reason = "Slot sudah terisi";
+  }
+
+  return {
+    scheduleId: schedule.id,
+    studioId: schedule.studio.id,
+    studioName: schedule.studio.name,
+    studioType: schedule.studio.type,
+    startTime: schedule.startTime.toISOString(),
+    endTime: schedule.endTime.toISOString(),
+    status,
+    reason,
+  };
 }
 
 function buildBookingCode() {
@@ -270,44 +319,49 @@ export const BookingServices = {
     await syncBookingPayments();
 
     if (!params.locationId) throw new Error("locationId wajib diisi");
-    if (!params.packageId) throw new Error("packageId wajib diisi");
-    if (!params.date) throw new Error("date wajib diisi");
-    if (!params.studioType) throw new Error("studioType wajib diisi");
-    if (!isStudioType(params.studioType)) throw new Error("Jenis studio tidak valid");
 
-    const date = parseDateOnly(params.date);
-    const [photoPackage, location, studios] = await Promise.all([
-      prisma.photoPackage.findUnique({
-        where: { id: params.packageId },
-      }),
+    if (params.studioType && !isStudioType(params.studioType)) {
+      throw new Error("Jenis studio tidak valid");
+    }
+
+    const date = params.date ? parseDateOnly(params.date) : startOfDay(new Date());
+    const studioWhere: Prisma.StudioWhereInput = {
+      isActive: true,
+      locationId: params.locationId,
+      ...(params.studioType ? { type: params.studioType as StudioType } : {}),
+    };
+
+    const scheduleWhere: Prisma.ScheduleWhereInput = {
+      date: {
+        gte: startOfDay(date),
+        lte: endOfDay(date),
+      },
+      studio: studioWhere,
+    };
+
+    const [packages, location, studios] = await Promise.all([
+      params.packageId
+        ? prisma.photoPackage.findMany({
+            where: { id: params.packageId },
+            orderBy: [{ durationMinutes: "asc" }, { price: "asc" }],
+          })
+        : prisma.photoPackage.findMany({
+            orderBy: [{ durationMinutes: "asc" }, { price: "asc" }],
+          }),
       prisma.location.findUnique({
         where: { id: params.locationId },
       }),
       prisma.studio.findMany({
-        where: {
-          isActive: true,
-          locationId: params.locationId,
-          type: params.studioType,
-        },
-        orderBy: { name: "asc" },
+        where: studioWhere,
+        orderBy: [{ type: "asc" }, { name: "asc" }],
       }),
     ]);
 
-    if (!photoPackage) throw new Error("Paket tidak ditemukan");
     if (!location) throw new Error("Lokasi tidak ditemukan");
+    if (packages.length === 0) throw new Error("Paket tidak ditemukan");
 
-    const schedules = await prisma.schedule.findMany({
-      where: {
-        date: {
-          gte: startOfDay(date),
-          lte: endOfDay(date),
-        },
-        studio: {
-          isActive: true,
-          locationId: params.locationId,
-          type: params.studioType,
-        },
-      },
+    const schedules: AvailabilitySchedule[] = await prisma.schedule.findMany({
+      where: scheduleWhere,
       include: {
         studio: true,
         booking: {
@@ -320,58 +374,46 @@ export const BookingServices = {
     });
 
     const now = new Date();
-    const slots = schedules.map(schedule => {
-      const booking = schedule.booking;
-      const isPast = schedule.startTime <= now;
-      const hasLongEnoughDuration =
-        schedule.endTime.getTime() - schedule.startTime.getTime() >= photoPackage.durationMinutes * 60 * 1000;
+    const packageAvailabilities = packages.map(photoPackage => {
+      const slots = schedules.map(schedule => mapScheduleToSlot(schedule, photoPackage.durationMinutes, now));
 
-      const bookingBlocksSlot = Boolean(
-        booking &&
-          ACTIVE_BOOKING_STATUSES.includes(booking.status) &&
-          (booking.status !== "pending" || addMinutes(booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > now)
-      );
+      return {
+        package: {
+          id: photoPackage.id,
+          name: photoPackage.name,
+          durationMinutes: photoPackage.durationMinutes,
+          price: photoPackage.price,
+          maxCapacity: photoPackage.maxCapacity,
+        },
+        slots,
+        availableSlots: slots.filter(slot => slot.status === "available"),
+      };
+    });
 
-      let status: "available" | "unavailable" = "available";
-      let reason: string | null = null;
+    if (params.packageId) {
+      const [selectedPackageAvailability] = packageAvailabilities;
 
-      if (isPast) {
-        status = "unavailable";
-        reason = "Jadwal sudah lewat";
-      } else if (!hasLongEnoughDuration) {
-        status = "unavailable";
-        reason = "Durasi slot tidak cukup untuk paket ini";
-      } else if (bookingBlocksSlot) {
-        status = "unavailable";
-        reason = "Slot sudah terisi";
+      if (!selectedPackageAvailability) {
+        throw new Error("Paket tidak ditemukan");
       }
 
       return {
-        scheduleId: schedule.id,
-        studioId: schedule.studio.id,
-        studioName: schedule.studio.name,
-        studioType: schedule.studio.type,
-        startTime: schedule.startTime.toISOString(),
-        endTime: schedule.endTime.toISOString(),
-        status,
-        reason,
+        location,
+        date: startOfDay(date).toISOString(),
+        package: selectedPackageAvailability.package,
+        studioType: params.studioType ?? null,
+        studios,
+        slots: selectedPackageAvailability.slots,
+        availableSlots: selectedPackageAvailability.availableSlots,
       };
-    });
+    }
 
     return {
       location,
       date: startOfDay(date).toISOString(),
-      package: {
-        id: photoPackage.id,
-        name: photoPackage.name,
-        durationMinutes: photoPackage.durationMinutes,
-        price: photoPackage.price,
-        maxCapacity: photoPackage.maxCapacity,
-      },
-      studioType: params.studioType,
+      studioType: params.studioType ?? null,
       studios,
-      slots,
-      availableSlots: slots.filter(slot => slot.status === "available"),
+      packages: packageAvailabilities,
     };
   },
 

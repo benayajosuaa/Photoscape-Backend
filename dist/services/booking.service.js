@@ -1,6 +1,7 @@
 import { prisma } from "../utils/prisma.js";
 const ACTIVE_BOOKING_STATUSES = ["pending", "confirmed", "completed"];
 import { PENDING_BOOKING_WINDOW_MINUTES, PAYMENT_METHODS, VA_AUTO_SUCCESS_SECONDS, buildPaymentExpiry, buildQrisPaymentPageUrl, confirmQrisPaymentFromPage, finalizePaidBooking, getPaymentInstructions, getQrisPaymentPage, isPaymentMethod, isVirtualAccountMethod, syncBookingPayments, } from "./payment.services.js";
+import { NotificationServices } from "./notification.service.js";
 function isStudioType(value) {
     return ["K1", "K2", "PHOTO_BOX", "SELF_PHOTO"].includes(value);
 }
@@ -22,6 +23,38 @@ function addMinutes(date, minutes) {
 }
 function formatMoney(value) {
     return Number(value.toFixed(2));
+}
+function mapScheduleToSlot(schedule, packageDurationMinutes, now) {
+    const booking = schedule.booking;
+    const isPast = schedule.startTime <= now;
+    const hasLongEnoughDuration = schedule.endTime.getTime() - schedule.startTime.getTime() >= packageDurationMinutes * 60 * 1000;
+    const bookingBlocksSlot = Boolean(booking &&
+        ACTIVE_BOOKING_STATUSES.includes(booking.status) &&
+        (booking.status !== "pending" || addMinutes(booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > now));
+    let status = "available";
+    let reason = null;
+    if (isPast) {
+        status = "unavailable";
+        reason = "Jadwal sudah lewat";
+    }
+    else if (!hasLongEnoughDuration) {
+        status = "unavailable";
+        reason = "Durasi slot tidak cukup untuk paket ini";
+    }
+    else if (bookingBlocksSlot) {
+        status = "unavailable";
+        reason = "Slot sudah terisi";
+    }
+    return {
+        scheduleId: schedule.id,
+        studioId: schedule.studio.id,
+        studioName: schedule.studio.name,
+        studioType: schedule.studio.type,
+        startTime: schedule.startTime.toISOString(),
+        endTime: schedule.endTime.toISOString(),
+        status,
+        reason,
+    };
 }
 function buildBookingCode() {
     const now = new Date();
@@ -181,47 +214,45 @@ export const BookingServices = {
         await syncBookingPayments();
         if (!params.locationId)
             throw new Error("locationId wajib diisi");
-        if (!params.packageId)
-            throw new Error("packageId wajib diisi");
-        if (!params.date)
-            throw new Error("date wajib diisi");
-        if (!params.studioType)
-            throw new Error("studioType wajib diisi");
-        if (!isStudioType(params.studioType))
+        if (params.studioType && !isStudioType(params.studioType)) {
             throw new Error("Jenis studio tidak valid");
-        const date = parseDateOnly(params.date);
-        const [photoPackage, location, studios] = await Promise.all([
-            prisma.photoPackage.findUnique({
-                where: { id: params.packageId },
-            }),
+        }
+        const date = params.date ? parseDateOnly(params.date) : startOfDay(new Date());
+        const studioWhere = {
+            isActive: true,
+            locationId: params.locationId,
+            ...(params.studioType ? { type: params.studioType } : {}),
+        };
+        const scheduleWhere = {
+            date: {
+                gte: startOfDay(date),
+                lte: endOfDay(date),
+            },
+            studio: studioWhere,
+        };
+        const [packages, location, studios] = await Promise.all([
+            params.packageId
+                ? prisma.photoPackage.findMany({
+                    where: { id: params.packageId },
+                    orderBy: [{ durationMinutes: "asc" }, { price: "asc" }],
+                })
+                : prisma.photoPackage.findMany({
+                    orderBy: [{ durationMinutes: "asc" }, { price: "asc" }],
+                }),
             prisma.location.findUnique({
                 where: { id: params.locationId },
             }),
             prisma.studio.findMany({
-                where: {
-                    isActive: true,
-                    locationId: params.locationId,
-                    type: params.studioType,
-                },
-                orderBy: { name: "asc" },
+                where: studioWhere,
+                orderBy: [{ type: "asc" }, { name: "asc" }],
             }),
         ]);
-        if (!photoPackage)
-            throw new Error("Paket tidak ditemukan");
         if (!location)
             throw new Error("Lokasi tidak ditemukan");
+        if (packages.length === 0)
+            throw new Error("Paket tidak ditemukan");
         const schedules = await prisma.schedule.findMany({
-            where: {
-                date: {
-                    gte: startOfDay(date),
-                    lte: endOfDay(date),
-                },
-                studio: {
-                    isActive: true,
-                    locationId: params.locationId,
-                    type: params.studioType,
-                },
-            },
+            where: scheduleWhere,
             include: {
                 studio: true,
                 booking: {
@@ -233,52 +264,41 @@ export const BookingServices = {
             orderBy: [{ startTime: "asc" }, { studio: { name: "asc" } }],
         });
         const now = new Date();
-        const slots = schedules.map(schedule => {
-            const booking = schedule.booking;
-            const isPast = schedule.startTime <= now;
-            const hasLongEnoughDuration = schedule.endTime.getTime() - schedule.startTime.getTime() >= photoPackage.durationMinutes * 60 * 1000;
-            const bookingBlocksSlot = Boolean(booking &&
-                ACTIVE_BOOKING_STATUSES.includes(booking.status) &&
-                (booking.status !== "pending" || addMinutes(booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > now));
-            let status = "available";
-            let reason = null;
-            if (isPast) {
-                status = "unavailable";
-                reason = "Jadwal sudah lewat";
-            }
-            else if (!hasLongEnoughDuration) {
-                status = "unavailable";
-                reason = "Durasi slot tidak cukup untuk paket ini";
-            }
-            else if (bookingBlocksSlot) {
-                status = "unavailable";
-                reason = "Slot sudah terisi";
-            }
+        const packageAvailabilities = packages.map(photoPackage => {
+            const slots = schedules.map(schedule => mapScheduleToSlot(schedule, photoPackage.durationMinutes, now));
             return {
-                scheduleId: schedule.id,
-                studioId: schedule.studio.id,
-                studioName: schedule.studio.name,
-                studioType: schedule.studio.type,
-                startTime: schedule.startTime.toISOString(),
-                endTime: schedule.endTime.toISOString(),
-                status,
-                reason,
+                package: {
+                    id: photoPackage.id,
+                    name: photoPackage.name,
+                    durationMinutes: photoPackage.durationMinutes,
+                    price: photoPackage.price,
+                    maxCapacity: photoPackage.maxCapacity,
+                },
+                slots,
+                availableSlots: slots.filter(slot => slot.status === "available"),
             };
         });
+        if (params.packageId) {
+            const [selectedPackageAvailability] = packageAvailabilities;
+            if (!selectedPackageAvailability) {
+                throw new Error("Paket tidak ditemukan");
+            }
+            return {
+                location,
+                date: startOfDay(date).toISOString(),
+                package: selectedPackageAvailability.package,
+                studioType: params.studioType ?? null,
+                studios,
+                slots: selectedPackageAvailability.slots,
+                availableSlots: selectedPackageAvailability.availableSlots,
+            };
+        }
         return {
             location,
             date: startOfDay(date).toISOString(),
-            package: {
-                id: photoPackage.id,
-                name: photoPackage.name,
-                durationMinutes: photoPackage.durationMinutes,
-                price: photoPackage.price,
-                maxCapacity: photoPackage.maxCapacity,
-            },
-            studioType: params.studioType,
+            studioType: params.studioType ?? null,
             studios,
-            slots,
-            availableSlots: slots.filter(slot => slot.status === "available"),
+            packages: packageAvailabilities,
         };
     },
     async createBooking(userId, payload) {
@@ -305,7 +325,7 @@ export const BookingServices = {
             throw new Error("Jenis studio tidak valid");
         if (!Number.isInteger(participantCount) || participantCount < 1)
             throw new Error("participantCount tidak valid");
-        return prisma.$transaction(async (tx) => {
+        const result = await prisma.$transaction(async (tx) => {
             const [photoPackage, schedule, user] = await Promise.all([
                 tx.photoPackage.findUnique({
                     where: { id: packageId },
@@ -442,6 +462,8 @@ export const BookingServices = {
                 },
             };
         });
+        await NotificationServices.notifyBookingCreated(result.bookingId);
+        return result;
     },
     async getSummary(userId, bookingId) {
         await syncBookingPayments();
@@ -453,7 +475,7 @@ export const BookingServices = {
         if (!method || !isPaymentMethod(String(method))) {
             throw new Error("Metode pembayaran tidak valid");
         }
-        return prisma.$transaction(async (tx) => {
+        const result = await prisma.$transaction(async (tx) => {
             const booking = await tx.booking.findFirst({
                 where: {
                     id: bookingId,
@@ -507,10 +529,12 @@ export const BookingServices = {
                 instructions: getPaymentInstructions(payment.method),
             };
         });
+        await NotificationServices.notifyPaymentPending(result.bookingId);
+        return result;
     },
     async confirmPayment(userId, bookingId) {
         await syncBookingPayments();
-        return prisma.$transaction(async (tx) => {
+        const result = await prisma.$transaction(async (tx) => {
             const booking = await tx.booking.findFirst({
                 where: {
                     id: bookingId,
@@ -546,6 +570,74 @@ export const BookingServices = {
                 },
             };
         });
+        await NotificationServices.notifyPaymentPaid(result.bookingId);
+        return result;
+    },
+    async cancelBooking(userId, bookingId, payload) {
+        const reason = String(payload.reason ?? "").trim() || "Dibatalkan oleh pengguna";
+        const result = await prisma.$transaction(async (tx) => {
+            const booking = await tx.booking.findFirst({
+                where: {
+                    id: bookingId,
+                    userId,
+                },
+                include: {
+                    payment: true,
+                    ticket: true,
+                    user: true,
+                },
+            });
+            if (!booking)
+                throw new Error("Booking tidak ditemukan");
+            if (booking.status === "cancelled")
+                throw new Error("Booking sudah dibatalkan");
+            if (booking.status === "completed")
+                throw new Error("Booking yang sudah selesai tidak bisa dibatalkan");
+            await tx.booking.update({
+                where: { id: booking.id },
+                data: {
+                    status: "cancelled",
+                },
+            });
+            if (booking.payment && booking.payment.status === "pending") {
+                await tx.payment.update({
+                    where: { id: booking.payment.id },
+                    data: {
+                        expiredAt: new Date(),
+                        status: "failed",
+                    },
+                });
+            }
+            if (booking.ticket) {
+                await tx.ticket.update({
+                    where: { bookingId: booking.id },
+                    data: {
+                        expiredAt: new Date(),
+                        status: "expired",
+                    },
+                });
+            }
+            return {
+                bookingId: booking.id,
+                hadPendingPayment: Boolean(booking.payment && booking.payment.status === "pending"),
+                reason,
+                userName: booking.user?.name ?? booking.customerName,
+            };
+        });
+        await NotificationServices.notifyBookingCancelled({
+            actorName: result.userName,
+            bookingId: result.bookingId,
+            cancelledBy: "customer",
+            reason: result.reason,
+        });
+        if (result.hadPendingPayment) {
+            await NotificationServices.notifyPaymentFailed(result.bookingId, "Pembayaran dibatalkan karena booking dibatalkan oleh pengguna.");
+        }
+        return {
+            bookingId: result.bookingId,
+            reason: result.reason,
+            status: "cancelled",
+        };
     },
     async getTicket(userId, bookingId) {
         await syncBookingPayments();
