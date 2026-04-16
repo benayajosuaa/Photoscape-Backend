@@ -4,6 +4,7 @@ import {
   assignUserRole,
   completeRegistration,
   findUserByEmail,
+  findUserById,
   hasPendingRegistration,
   isValidUserRole,
   loginUser,
@@ -61,16 +62,25 @@ async function handleRegister(name: string, email: string, password: string) {
   }
 }
 
-function handleGetCurrentUser(currentUser: unknown) {
-  if (!currentUser || typeof currentUser !== 'object') {
+async function handleGetCurrentUser(currentUser: any) {
+  if (!currentUser || typeof currentUser !== 'object' || !currentUser.userId) {
     return {
       body: { error: "User tidak valid" },
       status: 401,
     };
   }
 
+  const user = await findUserById(currentUser.userId);
+
+  if (!user) {
+    return {
+      body: { error: "User tidak ditemukan" },
+      status: 404,
+    };
+  }
+
   return {
-    body: { user: currentUser },
+    body: { user },
     status: 200,
   };
 }
@@ -306,8 +316,8 @@ export function logoutExpressController(req: ExpressRequest, res: ExpressRespons
   res.status(result.status).json(result.body);
 }
 
-export function meExpressController(req: ExpressRequest, res: ExpressResponse) {
-  const result = handleGetCurrentUser(req.user ?? null);
+export async function meExpressController(req: ExpressRequest, res: ExpressResponse) {
+  const result = await handleGetCurrentUser(req.user ?? null);
   res.status(result.status).json(result.body);
 }
 
