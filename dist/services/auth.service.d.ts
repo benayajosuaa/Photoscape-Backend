@@ -33,6 +33,18 @@ export declare function loginUser(email: string, password: string): Promise<{
     };
 }>;
 export declare function hasPendingRegistration(email: string): boolean;
+export declare function findUserById(id: string): Promise<{
+    createdAt: Date;
+    email: string;
+    id: string;
+    location: {
+        id: string;
+        name: string;
+    } | null;
+    locationId: string | null;
+    name: string;
+    role: UserRole;
+} | null>;
 export declare function findUserByEmail(email: string): Promise<{
     createdAt: Date;
     email: string;

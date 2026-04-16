@@ -1,5 +1,5 @@
 import { extractBearerToken } from '../middlewares/auth.middleware.js';
-import { assignUserRole, completeRegistration, findUserByEmail, hasPendingRegistration, isValidUserRole, loginUser, startRegistration, } from '../services/auth.service.js';
+import { assignUserRole, completeRegistration, findUserByEmail, findUserById, hasPendingRegistration, isValidUserRole, loginUser, startRegistration, } from '../services/auth.service.js';
 import { generateOTP, verifyOTP } from '../services/otp.service.js';
 import { getTokenExpiration, revokeToken, SESSION_DURATION_HOURS } from '../utils/jwt.js';
 import { sendOTPEmail } from '../utils/mailer.js';
@@ -44,15 +44,22 @@ async function handleRegister(name, email, password) {
         };
     }
 }
-function handleGetCurrentUser(currentUser) {
-    if (!currentUser || typeof currentUser !== 'object') {
+async function handleGetCurrentUser(currentUser) {
+    if (!currentUser || typeof currentUser !== 'object' || !currentUser.userId) {
         return {
             body: { error: "User tidak valid" },
             status: 401,
         };
     }
+    const user = await findUserById(currentUser.userId);
+    if (!user) {
+        return {
+            body: { error: "User tidak ditemukan" },
+            status: 404,
+        };
+    }
     return {
-        body: { user: currentUser },
+        body: { user },
         status: 200,
     };
 }
@@ -261,8 +268,8 @@ export function logoutExpressController(req, res) {
     const result = handleLogout(req.authToken ?? null);
     res.status(result.status).json(result.body);
 }
-export function meExpressController(req, res) {
-    const result = handleGetCurrentUser(req.user ?? null);
+export async function meExpressController(req, res) {
+    const result = await handleGetCurrentUser(req.user ?? null);
     res.status(result.status).json(result.body);
 }
 export async function assignRoleExpressController(req, res) {

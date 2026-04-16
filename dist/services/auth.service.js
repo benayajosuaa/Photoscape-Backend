@@ -123,6 +123,15 @@ export async function loginUser(email, password) {
 export function hasPendingRegistration(email) {
     return pendingRegistrations.has(normalizeEmail(email));
 }
+export async function findUserById(id) {
+    const user = await prisma.user.findUnique({
+        where: { id },
+        include: {
+            location: true,
+        },
+    });
+    return user ? sanitizeUser(user) : null;
+}
 export async function findUserByEmail(email) {
     const user = await prisma.user.findUnique({
         where: { email: normalizeEmail(email) },

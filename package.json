@@ -5,11 +5,11 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon --exec node --loader ts-node/esm src/index.ts",
-    "seed:booking": "node --loader ts-node/esm src/scripts/seed-booking.ts",
-    "seed:today": "SCHEDULE_SEED_DAYS_AHEAD=1 SCHEDULE_INCLUDE_TODAY=true node --loader ts-node/esm src/scripts/seed-booking.ts",
-    "seed:quick": "SCHEDULE_SEED_DAYS_AHEAD=3 SCHEDULE_INCLUDE_TODAY=true node --loader ts-node/esm src/scripts/seed-booking.ts",
-    "seed:full": "SCHEDULE_SEED_DAYS_AHEAD=30 SCHEDULE_INCLUDE_TODAY=true node --loader ts-node/esm src/scripts/seed-booking.ts",
+    "dev": "nodemon --exec node --import ./ts-node-register.mjs src/index.ts",
+    "seed:booking": "node --import ./ts-node-register.mjs src/scripts/seed-booking.ts",
+    "seed:today": "SCHEDULE_SEED_DAYS_AHEAD=1 SCHEDULE_INCLUDE_TODAY=true node --import ./ts-node-register.mjs src/scripts/seed-booking.ts",
+    "seed:quick": "SCHEDULE_SEED_DAYS_AHEAD=3 SCHEDULE_INCLUDE_TODAY=true node --import ./ts-node-register.mjs src/scripts/seed-booking.ts",
+    "seed:full": "SCHEDULE_SEED_DAYS_AHEAD=30 SCHEDULE_INCLUDE_TODAY=true node --import ./ts-node-register.mjs src/scripts/seed-booking.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },
