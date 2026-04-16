@@ -164,6 +164,17 @@ export function hasPendingRegistration(email: string) {
   return pendingRegistrations.has(normalizeEmail(email));
 }
 
+export async function findUserById(id: string) {
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: {
+      location: true,
+    },
+  });
+
+  return user ? sanitizeUser(user) : null;
+}
+
 export async function findUserByEmail(email: string) {
   const user = await prisma.user.findUnique({
     where: { email: normalizeEmail(email) },

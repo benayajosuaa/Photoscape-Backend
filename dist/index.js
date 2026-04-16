@@ -12,7 +12,7 @@ import { seedPrivilegedUser } from "./services/auth.service.js";
 import { NotificationServices } from "./services/notification.service.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.resolve(__dirname, "../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../.env"), override: true });
 await seedPrivilegedUser({
     email: process.env.OWNER_EMAIL,
     locationName: undefined,
@@ -52,6 +52,17 @@ const app = express();
 // middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use((req, res, next) => {
+    const allowedOrigin = process.env.FRONTEND_URL || "http://localhost:3000";
+    res.header("Access-Control-Allow-Origin", allowedOrigin);
+    res.header("Vary", "Origin");
+    res.header("Access-Control-Allow-Methods", "GET,POST,PATCH,PUT,DELETE,OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    if (req.method === "OPTIONS") {
+        return res.sendStatus(204);
+    }
+    return next();
+});
 // health check / root
 app.get("/", (req, res) => {
     res.status(200).json({

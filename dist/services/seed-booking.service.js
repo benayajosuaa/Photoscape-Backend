@@ -48,6 +48,8 @@ const DAILY_TIME_SLOTS = [
     { startHour: 16, durationMinutes: 60 },
     { startHour: 17, durationMinutes: 60 },
 ];
+const SCHEDULE_SEED_DAYS_AHEAD = Number(process.env.SCHEDULE_SEED_DAYS_AHEAD ?? 30);
+const SCHEDULE_INCLUDE_TODAY = process.env.SCHEDULE_INCLUDE_TODAY !== "false";
 function atUtcDayOffset(daysFromNow) {
     const now = new Date();
     return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysFromNow, 0, 0, 0, 0));
@@ -159,41 +161,31 @@ export const SeedBookingServices = {
         console.log(`Studios loaded for schedules: ${studios.length}`);
         console.log("Seeding schedules...");
         let processedSchedules = 0;
+        const startOffset = SCHEDULE_INCLUDE_TODAY ? 0 : 1;
+        const endOffset = Math.max(startOffset, SCHEDULE_SEED_DAYS_AHEAD);
         for (const studio of studios) {
             console.log(`Seeding schedules for studio ${studio.id}...`);
-            for (let dayOffset = 1; dayOffset <= 7; dayOffset += 1) {
+            const scheduleRows = [];
+            for (let dayOffset = startOffset; dayOffset <= endOffset; dayOffset += 1) {
                 const day = atUtcDayOffset(dayOffset);
                 for (const slot of DAILY_TIME_SLOTS) {
                     const startTime = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), slot.startHour, 0, 0, 0));
                     const endTime = addMinutes(startTime, slot.durationMinutes);
-                    const existing = await prisma.schedule.findFirst({
-                        where: {
-                            studioId: studio.id,
-                            date: day,
-                            startTime,
-                        },
+                    scheduleRows.push({
+                        studioId: studio.id,
+                        date: day,
+                        startTime,
+                        endTime,
                     });
-                    if (existing) {
-                        await prisma.schedule.update({
-                            where: { id: existing.id },
-                            data: {
-                                endTime,
-                            },
-                        });
-                        processedSchedules += 1;
-                        continue;
-                    }
-                    await prisma.schedule.create({
-                        data: {
-                            studioId: studio.id,
-                            date: day,
-                            startTime,
-                            endTime,
-                        },
-                    });
-                    processedSchedules += 1;
                 }
             }
+            if (scheduleRows.length > 0) {
+                await prisma.schedule.createMany({
+                    data: scheduleRows,
+                    skipDuplicates: true,
+                });
+            }
+            processedSchedules += scheduleRows.length;
         }
         console.log(`Schedules processed: ${processedSchedules}`);
         const [locationCount, studioCount, packageCount, addOnCount, scheduleCount] = await Promise.all([
