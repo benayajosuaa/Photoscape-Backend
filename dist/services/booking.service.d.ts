@@ -285,6 +285,12 @@ export declare const BookingServices: {
             expiredAt: string;
         };
     }>;
+    sendTicketInvoiceEmail(userId: string, bookingId: string): Promise<{
+        bookingId: string;
+        bookingCode: string;
+        email: string;
+        status: string;
+    }>;
     getQrisPaymentPage(paymentId: string): Promise<string>;
     confirmQrisPaymentFromPage(paymentId: string): Promise<string>;
 };

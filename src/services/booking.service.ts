@@ -1,5 +1,6 @@
 import type { BookingStatus, PaymentMethod, Prisma, StudioType } from "@prisma/client";
 import { prisma } from "../utils/prisma.js";
+import { sendEmail } from "../utils/mailer.js";
 const ACTIVE_BOOKING_STATUSES: BookingStatus[] = ["pending", "confirmed", "completed"];
 import {
   PENDING_BOOKING_WINDOW_MINUTES,
@@ -184,6 +185,7 @@ async function getBookingOwnedByUser(userId: string, bookingId: string) {
       },
       payment: true,
       ticket: true,
+      user: true,
     },
   });
 
@@ -192,6 +194,74 @@ async function getBookingOwnedByUser(userId: string, bookingId: string) {
   }
 
   return booking;
+}
+
+function formatCurrency(value: number) {
+  return `Rp ${value.toLocaleString("id-ID")}`;
+}
+
+function formatDateLabel(value: Date) {
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "Asia/Jakarta",
+  }).format(value);
+}
+
+function formatTimeLabel(value: Date) {
+  const hours = String(value.getUTCHours()).padStart(2, "0");
+  const minutes = String(value.getUTCMinutes()).padStart(2, "0");
+  return `${hours}.${minutes} WIB`;
+}
+
+function buildTicketInvoiceEmailHtml(params: {
+  bookingCode: string;
+  customerName: string;
+  customerPhone: string;
+  durationMinutes: number;
+  locationName: string;
+  packageName: string;
+  qrCodeValue: string;
+  scheduleDate: Date;
+  scheduleStartTime: Date;
+  totalPrice: number;
+}) {
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=0&data=${encodeURIComponent(
+    params.qrCodeValue
+  )}`;
+
+  return `<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Invoice Tiket Photoscape</title>
+</head>
+<body style="margin:0;padding:24px;background:#f4f0f2;font-family:Arial,sans-serif;color:#0b1957;">
+  <div style="max-width:720px;margin:0 auto;background:#eed0db;border-radius:20px;overflow:hidden;border:1px solid #e2bfd0;">
+    <div style="background:#0b1957;padding:22px 28px;">
+      <p style="margin:0;color:#fa9ebc;font-size:14px;text-transform:uppercase;letter-spacing:.06em;">Nomor Pesanan</p>
+      <p style="margin:8px 0 0;color:#fa9ebc;font-size:30px;font-weight:700;">${params.bookingCode}</p>
+    </div>
+    <div style="padding:24px 28px;">
+      <p style="margin:0 0 10px;font-size:20px;font-weight:700;">Detail Booking</p>
+      <p style="margin:0 0 6px;">Nama: <strong>${params.customerName}</strong></p>
+      <p style="margin:0 0 6px;">No. HP: <strong>${params.customerPhone}</strong></p>
+      <p style="margin:0 0 6px;">Paket: <strong>${params.packageName}</strong></p>
+      <p style="margin:0 0 6px;">Durasi: <strong>${params.durationMinutes} menit</strong></p>
+      <p style="margin:0 0 6px;">Tanggal: <strong>${formatDateLabel(params.scheduleDate)}</strong></p>
+      <p style="margin:0 0 6px;">Waktu: <strong>${formatTimeLabel(params.scheduleStartTime)}</strong></p>
+      <p style="margin:0 0 6px;">Lokasi: <strong>${params.locationName}</strong></p>
+      <p style="margin:14px 0 0;font-size:18px;">Total: <strong>${formatCurrency(params.totalPrice)}</strong></p>
+      <div style="margin-top:18px;padding-top:18px;border-top:1px dashed #b39ba5;text-align:center;">
+        <img src="${qrImageUrl}" alt="QR tiket" width="220" height="220" style="display:block;margin:0 auto 10px;background:#fff;border-radius:12px;padding:10px;" />
+        <p style="margin:0;color:#666;font-size:14px;">Tunjukkan QR ini kepada admin saat tiba di studio.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
 }
 
 function calculateAddOnTotal(addOns: Array<{ quantity: number; addOn: { price: number } }>) {
@@ -821,6 +891,61 @@ export const BookingServices = {
         issuedAt: booking.ticket.issuedAt.toISOString(),
         expiredAt: booking.ticket.expiredAt.toISOString(),
       },
+    };
+  },
+
+  async sendTicketInvoiceEmail(userId: string, bookingId: string) {
+    await syncBookingPayments();
+    const booking = await getBookingOwnedByUser(userId, bookingId);
+
+    if (!booking.ticket) {
+      throw new Error("Tiket belum tersedia. Selesaikan pembayaran terlebih dahulu.");
+    }
+
+    if (booking.payment?.status !== "paid") {
+      throw new Error("Invoice belum bisa dikirim karena pembayaran belum sukses.");
+    }
+
+    if (!booking.user?.email) {
+      throw new Error("Email user tidak ditemukan.");
+    }
+
+    const html = buildTicketInvoiceEmailHtml({
+      bookingCode: booking.bookingCode,
+      customerName: booking.customerName,
+      customerPhone: booking.customerPhone,
+      durationMinutes: booking.package.durationMinutes,
+      locationName: booking.location.name,
+      packageName: booking.package.name,
+      qrCodeValue: booking.ticket.qrCode,
+      scheduleDate: booking.schedule.date,
+      scheduleStartTime: booking.schedule.startTime,
+      totalPrice: booking.totalPrice,
+    });
+
+    await sendEmail({
+      to: booking.user.email,
+      subject: `Invoice Booking Photoscape - ${booking.bookingCode}`,
+      text: [
+        `Nomor Pesanan: ${booking.bookingCode}`,
+        `Nama: ${booking.customerName}`,
+        `No. HP: ${booking.customerPhone}`,
+        `Paket: ${booking.package.name}`,
+        `Durasi: ${booking.package.durationMinutes} menit`,
+        `Tanggal: ${formatDateLabel(booking.schedule.date)}`,
+        `Waktu: ${formatTimeLabel(booking.schedule.startTime)}`,
+        `Lokasi: ${booking.location.name}`,
+        `Total: ${formatCurrency(booking.totalPrice)}`,
+        `QR Code: ${booking.ticket.qrCode}`,
+      ].join("\n"),
+      html,
+    });
+
+    return {
+      bookingId: booking.id,
+      bookingCode: booking.bookingCode,
+      email: booking.user.email,
+      status: "sent",
     };
   },
 

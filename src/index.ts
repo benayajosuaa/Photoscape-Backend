@@ -18,45 +18,58 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.resolve(__dirname, "../.env"), override: true });
 
-await seedPrivilegedUser({
-  email: process.env.OWNER_EMAIL,
-  locationName: undefined,
-  name: process.env.OWNER_NAME ?? 'Owner',
-  password: process.env.OWNER_PASSWORD,
-  role: 'owner',
-});
+async function seedPrivilegedUsersSafe() {
+  const seedConfigs = [
+    {
+      email: process.env.OWNER_EMAIL,
+      locationName: undefined,
+      name: process.env.OWNER_NAME ?? "Owner",
+      password: process.env.OWNER_PASSWORD,
+      role: "owner" as const,
+    },
+    {
+      email: process.env.ADMIN_EMAIL,
+      locationName: process.env.ADMIN_LOCATION ?? "Medan",
+      name: process.env.ADMIN_NAME ?? "Admin",
+      password: process.env.ADMIN_PASSWORD,
+      role: "admin" as const,
+    },
+    {
+      email: process.env.ADMIN_EMAIL_JAKARTA,
+      locationName: process.env.ADMIN_LOCATION_JAKARTA ?? "Jakarta",
+      name: process.env.ADMIN_NAME_JAKARTA ?? "Admin Jakarta",
+      password: process.env.ADMIN_PASSWORD_JAKARTA,
+      role: "admin" as const,
+    },
+    {
+      email: process.env.ADMIN_EMAIL_SURABAYA,
+      locationName: process.env.ADMIN_LOCATION_SURABAYA ?? "Surabaya",
+      name: process.env.ADMIN_NAME_SURABAYA ?? "Admin Surabaya",
+      password: process.env.ADMIN_PASSWORD_SURABAYA,
+      role: "admin" as const,
+    },
+    {
+      email: process.env.MANAGER_EMAIL,
+      locationName: process.env.MANAGER_LOCATION,
+      name: process.env.MANAGER_NAME ?? "Manager",
+      password: process.env.MANAGER_PASSWORD,
+      role: "manager" as const,
+    },
+  ];
 
-await seedPrivilegedUser({
-  email: process.env.ADMIN_EMAIL,
-  locationName: process.env.ADMIN_LOCATION ?? 'Medan',
-  name: process.env.ADMIN_NAME ?? 'Admin',
-  password: process.env.ADMIN_PASSWORD,
-  role: 'admin',
-});
-
-await seedPrivilegedUser({
-  email: process.env.ADMIN_EMAIL_JAKARTA,
-  locationName: process.env.ADMIN_LOCATION_JAKARTA ?? 'Jakarta',
-  name: process.env.ADMIN_NAME_JAKARTA ?? 'Admin Jakarta',
-  password: process.env.ADMIN_PASSWORD_JAKARTA,
-  role: 'admin',
-});
-
-await seedPrivilegedUser({
-  email: process.env.ADMIN_EMAIL_SURABAYA,
-  locationName: process.env.ADMIN_LOCATION_SURABAYA ?? 'Surabaya',
-  name: process.env.ADMIN_NAME_SURABAYA ?? 'Admin Surabaya',
-  password: process.env.ADMIN_PASSWORD_SURABAYA,
-  role: 'admin',
-});
-
-await seedPrivilegedUser({
-  email: process.env.MANAGER_EMAIL,
-  locationName: process.env.MANAGER_LOCATION,
-  name: process.env.MANAGER_NAME ?? 'Manager',
-  password: process.env.MANAGER_PASSWORD,
-  role: 'manager',
-});
+  for (const config of seedConfigs) {
+    try {
+      await seedPrivilegedUser(config);
+    } catch (error) {
+      console.error(
+        `[startup] gagal seed user role=${config.role} email=${config.email ?? "-"}:`,
+        error
+      );
+      console.warn("[startup] lanjut boot tanpa menghentikan server.");
+      break;
+    }
+  }
+}
 
 const app = express();
 
@@ -106,6 +119,7 @@ app.use("/api/bookings", bookingRoute);
 app.use("/api/notifications", notificationRoute);
 
 NotificationServices.startJobs();
+void seedPrivilegedUsersSafe();
 
 // Serverless
 export default app;

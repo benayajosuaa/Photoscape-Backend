@@ -176,6 +176,26 @@ export const BookingController = {
     }
   },
 
+  async sendTicketInvoiceEmail(req: Request, res: Response) {
+    try {
+      const userId = getAuthenticatedUserId(req);
+      const bookingId = getSingleValue(req.params.bookingId)?.trim() ?? "";
+      const data = await BookingServices.sendTicketInvoiceEmail(userId, bookingId);
+
+      return res.status(200).json({
+        message: "invoice sent",
+        data,
+      });
+    } catch (error: any) {
+      console.error(error);
+      const status = error.message === "Booking tidak ditemukan" ? 404 : 400;
+
+      return res.status(status).json({
+        message: error.message ?? "failed to send invoice",
+      });
+    }
+  },
+
   async cancelBooking(req: Request, res: Response) {
     try {
       const userId = getAuthenticatedUserId(req);

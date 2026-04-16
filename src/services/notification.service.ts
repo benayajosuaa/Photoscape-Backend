@@ -10,6 +10,7 @@ const REMINDER_LEAD_MINUTES = Number(process.env.NOTIFICATION_REMINDER_MINUTES ?
 
 const sseClients = new Map<string, Set<Response>>();
 let notificationJobsStarted = false;
+let notificationJobsSuspendedDueToDb = false;
 
 type NotificationPayload = {
   bookingId: string | undefined;
@@ -46,6 +47,17 @@ function formatMoney(value: number) {
 
 function isMailConfigured() {
   return Boolean(process.env.MAIL_USER && process.env.MAIL_APP_PASSWORD);
+}
+
+function isDatabaseConnectionError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("Can't reach database server") ||
+    message.includes("P1001") ||
+    message.includes("ENOTFOUND") ||
+    message.includes("ECONNREFUSED") ||
+    message.includes("ETIMEDOUT")
+  );
 }
 
 function emitNotification(notification: Notification) {
@@ -99,6 +111,11 @@ async function loadBookingNotificationContext(bookingId: string) {
       location: true,
       package: true,
       payment: true,
+      addOns: {
+        include: {
+          addOn: true,
+        },
+      },
       schedule: {
         include: {
           studio: true,
@@ -357,21 +374,37 @@ export const NotificationServices = {
     }
 
     const paidAtLabel = booking.payment.paidAt ? formatDateTime(booking.payment.paidAt) : formatDateTime(new Date());
+    const addOnTotal = booking.addOns.reduce((sum, item) => sum + item.quantity * item.addOn.price, 0);
+    const addOnLines = booking.addOns.length
+      ? booking.addOns.map(
+          item => `${item.addOn.name} x${item.quantity} (${formatMoney(item.quantity * item.addOn.price)})`
+        )
+      : ["Tidak ada add-on."];
     const message = `Pembayaran booking ${booking.bookingCode} berhasil dikonfirmasi.`;
 
     await createCustomerNotification(booking, {
       emailHtml: buildCustomerEmailHtml({
-        heading: "Pembayaran Berhasil",
+        heading: "Invoice Pembayaran Photoscape",
         lines: [
-          `Pembayaran booking ${booking.bookingCode} sebesar ${formatMoney(booking.payment.amount)} berhasil dikonfirmasi.`,
-          `Jadwal Anda tetap pada ${formatDateTime(booking.schedule.startTime)} di ${booking.location.name}.`,
+          `Booking Code: ${booking.bookingCode}`,
+          `Nama Paket: ${booking.package.name} (${formatMoney(booking.package.price)})`,
+          `Add-on: ${addOnLines.join(", ")}`,
+          `Total Add-on: ${formatMoney(addOnTotal)}`,
+          `Total Pembayaran: ${formatMoney(booking.payment.amount)}`,
+          `Metode: ${booking.payment.method.toUpperCase()}`,
+          `Dibayar pada: ${paidAtLabel}`,
+          `Jadwal: ${formatDateTime(booking.schedule.startTime)} di ${booking.location.name}`,
         ],
-        cta: "Tiket booking Anda sudah siap di dalam sistem.",
+        cta: "Invoice ini dikirim otomatis ke email akun login Anda. Tiket booking sudah siap di sistem.",
       }),
-      emailSubject: "Status Pembayaran Photoscape: Berhasil",
+      emailSubject: "Invoice Photoscape - Pembayaran Berhasil",
       emailText: [
-        `Pembayaran booking ${booking.bookingCode} berhasil.`,
-        `Nominal: ${formatMoney(booking.payment.amount)}`,
+        `Invoice booking ${booking.bookingCode}`,
+        `Paket: ${booking.package.name} (${formatMoney(booking.package.price)})`,
+        `Add-on: ${addOnLines.join(", ")}`,
+        `Total add-on: ${formatMoney(addOnTotal)}`,
+        `Total bayar: ${formatMoney(booking.payment.amount)}`,
+        `Metode: ${booking.payment.method.toUpperCase()}`,
         `Dibayar pada: ${paidAtLabel}`,
       ].join("\n"),
       message,
@@ -686,9 +719,22 @@ export const NotificationServices = {
     notificationJobsStarted = true;
 
     const run = async () => {
+      if (notificationJobsSuspendedDueToDb) {
+        return;
+      }
+
       try {
         await this.runReminderDispatch();
       } catch (error) {
+        if (isDatabaseConnectionError(error)) {
+          notificationJobsSuspendedDueToDb = true;
+          console.error(
+            "notification reminder job suspended: database is unreachable. restart server after DB connection is healthy.",
+            error
+          );
+          return;
+        }
+
         console.error("notification reminder job failed", error);
       }
     };
