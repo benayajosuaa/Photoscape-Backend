@@ -94,6 +94,23 @@ export const BookingController = {
     }
   },
 
+  async getHistory(req: Request, res: Response) {
+    try {
+      const userId = getAuthenticatedUserId(req);
+      const data = await BookingServices.getHistory(userId);
+
+      return res.status(200).json({
+        message: "booking history loaded",
+        data,
+      });
+    } catch (error: any) {
+      console.error(error);
+      return res.status(400).json({
+        message: error.message ?? "failed to load booking history",
+      });
+    }
+  },
+
   async createPayment(req: Request, res: Response) {
     try {
       const userId = getAuthenticatedUserId(req);

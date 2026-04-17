@@ -4,6 +4,7 @@ export declare const BookingController: {
     getAvailability(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
     createBooking(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
     getSummary(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
+    getHistory(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
     createPayment(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
     showQrisPaymentPage(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;
     confirmQrisPaymentPage(req: Request, res: Response): Promise<Response<any, Record<string, any>>>;

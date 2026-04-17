@@ -83,6 +83,22 @@ export const BookingController = {
             });
         }
     },
+    async getHistory(req, res) {
+        try {
+            const userId = getAuthenticatedUserId(req);
+            const data = await BookingServices.getHistory(userId);
+            return res.status(200).json({
+                message: "booking history loaded",
+                data,
+            });
+        }
+        catch (error) {
+            console.error(error);
+            return res.status(400).json({
+                message: error.message ?? "failed to load booking history",
+            });
+        }
+    },
     async createPayment(req, res) {
         try {
             const userId = getAuthenticatedUserId(req);

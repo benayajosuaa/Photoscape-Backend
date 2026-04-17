@@ -8,6 +8,7 @@ router.get("/payments/:paymentId/qris", BookingController.showQrisPaymentPage);
 router.get("/payments/:paymentId/qris/confirm", BookingController.confirmQrisPaymentPage);
 router.post("/payments/:paymentId/qris/confirm", BookingController.confirmQrisPaymentPage);
 router.post("/", authenticateExpress, BookingController.createBooking);
+router.get("/history", authenticateExpress, BookingController.getHistory);
 router.patch("/:bookingId/cancel", authenticateExpress, BookingController.cancelBooking);
 router.get("/:bookingId/summary", authenticateExpress, BookingController.getSummary);
 router.post("/:bookingId/payment", authenticateExpress, BookingController.createPayment);

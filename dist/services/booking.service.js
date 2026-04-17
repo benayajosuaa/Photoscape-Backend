@@ -729,6 +729,78 @@ export const BookingServices = {
             },
         };
     },
+    async getHistory(userId) {
+        await syncBookingPayments();
+        const bookings = await prisma.booking.findMany({
+            where: {
+                userId,
+            },
+            include: {
+                addOns: {
+                    include: {
+                        addOn: true,
+                    },
+                },
+                location: true,
+                package: true,
+                payment: true,
+                schedule: {
+                    include: {
+                        studio: true,
+                    },
+                },
+                ticket: true,
+            },
+            orderBy: {
+                createdAt: "desc",
+            },
+        });
+        const history = bookings.map(item => ({
+            bookingCode: item.bookingCode,
+            bookingId: item.id,
+            createdAt: item.createdAt.toISOString(),
+            location: item.location.name,
+            package: {
+                durationMinutes: item.package.durationMinutes,
+                name: item.package.name,
+            },
+            payment: item.payment
+                ? {
+                    amount: item.payment.amount,
+                    method: item.payment.method,
+                    paidAt: item.payment.paidAt?.toISOString() ?? null,
+                    status: item.payment.status,
+                }
+                : null,
+            pricing: {
+                addOnTotal: item.addOns.reduce((sum, addon) => sum + addon.quantity * addon.addOn.price, 0),
+                totalPrice: item.totalPrice,
+            },
+            schedule: {
+                date: item.schedule.date.toISOString(),
+                endTime: item.schedule.endTime.toISOString(),
+                startTime: item.schedule.startTime.toISOString(),
+                studioName: item.schedule.studio.name,
+            },
+            status: item.status,
+            ticket: item.ticket
+                ? {
+                    id: item.ticket.id,
+                    qrCode: item.ticket.qrCode,
+                    status: item.ticket.status,
+                }
+                : null,
+        }));
+        const paidItems = history.filter(item => item.payment?.status === "paid");
+        return {
+            history,
+            summary: {
+                paidBookings: paidItems.length,
+                totalBookings: history.length,
+                totalSpent: paidItems.reduce((sum, item) => sum + (item.payment?.amount ?? 0), 0),
+            },
+        };
+    },
     async sendTicketInvoiceEmail(userId, bookingId) {
         await syncBookingPayments();
         const booking = await getBookingOwnedByUser(userId, bookingId);

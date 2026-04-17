@@ -285,6 +285,45 @@ export declare const BookingServices: {
             expiredAt: string;
         };
     }>;
+    getHistory(userId: string): Promise<{
+        history: {
+            bookingCode: string;
+            bookingId: string;
+            createdAt: string;
+            location: string;
+            package: {
+                durationMinutes: number;
+                name: string;
+            };
+            payment: {
+                amount: number;
+                method: import(".prisma/client").$Enums.PaymentMethod;
+                paidAt: string | null;
+                status: import(".prisma/client").$Enums.PaymentStatus;
+            } | null;
+            pricing: {
+                addOnTotal: number;
+                totalPrice: number;
+            };
+            schedule: {
+                date: string;
+                endTime: string;
+                startTime: string;
+                studioName: string;
+            };
+            status: import(".prisma/client").$Enums.BookingStatus;
+            ticket: {
+                id: string;
+                qrCode: string;
+                status: import(".prisma/client").$Enums.TicketStatus;
+            } | null;
+        }[];
+        summary: {
+            paidBookings: number;
+            totalBookings: number;
+            totalSpent: number;
+        };
+    }>;
     sendTicketInvoiceEmail(userId: string, bookingId: string): Promise<{
         bookingId: string;
         bookingCode: string;
