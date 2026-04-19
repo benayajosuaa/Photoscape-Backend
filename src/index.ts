@@ -19,6 +19,11 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, "../.env"), override: true });
 
 async function seedPrivilegedUsersSafe() {
+  const medanAdminEmail = process.env.ADMIN_EMAIL_MEDAN ?? process.env.ADMIN_EMAIL;
+  const medanAdminPassword = process.env.ADMIN_PASSWORD_MEDAN ?? process.env.ADMIN_PASSWORD;
+  const medanAdminName = process.env.ADMIN_NAME_MEDAN ?? process.env.ADMIN_NAME ?? "Admin Medan";
+  const medanAdminLocation = process.env.ADMIN_LOCATION_MEDAN ?? process.env.ADMIN_LOCATION ?? "Medan";
+
   const seedConfigs = [
     {
       email: process.env.OWNER_EMAIL,
@@ -28,10 +33,10 @@ async function seedPrivilegedUsersSafe() {
       role: "owner" as const,
     },
     {
-      email: process.env.ADMIN_EMAIL,
-      locationName: process.env.ADMIN_LOCATION ?? "Medan",
-      name: process.env.ADMIN_NAME ?? "Admin",
-      password: process.env.ADMIN_PASSWORD,
+      email: medanAdminEmail,
+      locationName: medanAdminLocation,
+      name: medanAdminName,
+      password: medanAdminPassword,
       role: "admin" as const,
     },
     {

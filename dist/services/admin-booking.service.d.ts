@@ -23,6 +23,7 @@ type UpdateBookingPayload = {
 };
 type RescheduleBookingPayload = {
     scheduleId?: string;
+    startTime?: string;
 };
 type CancelBookingPayload = {
     reason?: string;

@@ -35,6 +35,7 @@ type UpdateBookingPayload = {
 
 type RescheduleBookingPayload = {
   scheduleId?: string;
+  startTime?: string;
 };
 
 type CancelBookingPayload = {
@@ -263,6 +264,15 @@ async function createAuditLog(
 function ensureAdminEditableStatus(status: BookingStatus) {
   if (!ADMIN_EDITABLE_BOOKING_STATUSES.includes(status)) {
     throw new Error("Booking dengan status ini tidak bisa diubah oleh admin");
+  }
+}
+
+function ensureAdminCanReschedule(status: BookingStatus) {
+  // Admin tetap boleh reschedule selama booking belum dibatalkan.
+  // Ini membantu kasus operasional saat status booking sudah berubah di backend
+  // tetapi jadwal tetap perlu disesuaikan.
+  if (status === "cancelled") {
+    throw new Error("Booking yang sudah dibatalkan tidak bisa diubah jadwalnya");
   }
 }
 
@@ -658,23 +668,55 @@ export const AdminBookingServices = {
 
   async rescheduleBooking(actor: AdminActor, bookingId: string, payload: RescheduleBookingPayload) {
     const nextScheduleId = String(payload.scheduleId ?? "").trim();
+    const nextStartTimeRaw = String(payload.startTime ?? "").trim();
 
-    if (!nextScheduleId) {
-      throw new Error("scheduleId wajib diisi");
+    if (!nextScheduleId && !nextStartTimeRaw) {
+      throw new Error("scheduleId atau startTime wajib diisi");
     }
 
     const result = await prisma.$transaction(async tx => {
       const booking = await loadBookingOrThrow(tx, bookingId);
       ensureActorCanAccessBooking(actor, booking.locationId);
-      ensureAdminEditableStatus(booking.status);
+      ensureAdminCanReschedule(booking.status);
 
-      const nextSchedule = await tx.schedule.findUnique({
-        where: { id: nextScheduleId },
-        include: {
-          studio: true,
-          booking: true,
-        },
-      });
+      let nextSchedule: any = null;
+
+      if (nextScheduleId) {
+        nextSchedule = await tx.schedule.findUnique({
+          where: { id: nextScheduleId },
+          include: {
+            studio: true,
+            booking: true,
+          },
+        });
+      } else {
+        const parsedStartTime = new Date(nextStartTimeRaw);
+        if (Number.isNaN(parsedStartTime.getTime())) {
+          throw new Error("startTime tidak valid");
+        }
+
+        const hourStart = new Date(parsedStartTime);
+        hourStart.setMinutes(0, 0, 0);
+        const hourEnd = new Date(parsedStartTime);
+        hourEnd.setMinutes(59, 59, 999);
+
+        nextSchedule = await tx.schedule.findFirst({
+          where: {
+            studioId: booking.schedule.studio.id,
+            startTime: {
+              gte: hourStart,
+              lte: hourEnd,
+            },
+          },
+          include: {
+            studio: true,
+            booking: true,
+          },
+          orderBy: {
+            startTime: "asc",
+          },
+        });
+      }
 
       if (!nextSchedule) throw new Error("Jadwal tujuan tidak ditemukan");
       if (!nextSchedule.studio.isActive) throw new Error("Studio tujuan sedang tidak aktif");
@@ -833,67 +875,90 @@ export const AdminBookingServices = {
       });
     }
 
-    const result = await prisma.$transaction(async tx => {
-      const booking = await loadBookingOrThrow(tx, bookingId);
-      ensureActorCanAccessBooking(actor, booking.locationId);
-      const beforeSnapshot = serializeBookingForAdmin(booking);
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: bookingAdminInclude,
+    });
 
-      if (booking.status === nextStatus) {
-        throw new Error("Status booking sudah sama");
-      }
+    if (!booking) {
+      throw new Error("Booking tidak ditemukan");
+    }
 
-      if (nextStatus === "confirmed" && booking.payment?.status !== "paid") {
-        throw new Error("Booking belum paid. Gunakan manual payment atau selesaikan pembayaran terlebih dahulu.");
-      }
+    ensureActorCanAccessBooking(actor, booking.locationId);
+    const beforeSnapshot = serializeBookingForAdmin(booking);
 
-      if (nextStatus === "completed" && booking.status !== "confirmed") {
-        throw new Error("Booking hanya bisa diselesaikan dari status confirmed");
-      }
+    if (booking.status === nextStatus) {
+      throw new Error("Status booking sudah sama");
+    }
 
-      if (nextStatus === "pending" && booking.status === "completed") {
-        throw new Error("Booking completed tidak bisa dikembalikan ke pending");
-      }
+    if (nextStatus === "confirmed" && booking.payment?.status !== "paid") {
+      throw new Error("Booking belum paid. Gunakan manual payment atau selesaikan pembayaran terlebih dahulu.");
+    }
 
-      await tx.booking.update({
+    if (nextStatus === "completed" && booking.status !== "confirmed") {
+      throw new Error("Booking hanya bisa diselesaikan dari status confirmed");
+    }
+
+    if (nextStatus === "pending" && booking.status === "completed") {
+      throw new Error("Booking completed tidak bisa dikembalikan ke pending");
+    }
+
+    const writeOps: Prisma.PrismaPromise<unknown>[] = [
+      prisma.booking.update({
         where: { id: booking.id },
         data: {
           status: nextStatus,
         },
-      });
+      }),
+    ];
 
-      if (nextStatus === "completed" && booking.ticket) {
-        await tx.ticket.update({
+    if (nextStatus === "completed" && booking.ticket) {
+      writeOps.push(
+        prisma.ticket.update({
           where: { bookingId: booking.id },
           data: {
             status: "used",
             scannedAt: new Date(),
             scannedById: actor.userId,
           },
-        });
-      }
+        })
+      );
+    }
 
-      const updatedBooking = await refreshBookingForAdmin(tx, booking.id);
+    await prisma.$transaction(writeOps);
 
-      await createAuditLog(tx, {
-        adminId: actor.userId,
+    const updatedBooking = await prisma.booking.findUniqueOrThrow({
+      where: { id: booking.id },
+      include: bookingAdminInclude,
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: actor.userId,
         action: "booking.status_updated",
+        entityType: "booking",
+        entityId: booking.id,
         bookingId: booking.id,
-        oldData: beforeSnapshot,
-        newData: {
+        oldData: normalizeJson(beforeSnapshot) as Prisma.InputJsonValue,
+        newData: normalizeJson({
           booking: serializeBookingForAdmin(updatedBooking),
           reason: payload.reason ?? null,
-        },
+        }) as Prisma.InputJsonValue,
+      },
+    });
+
+    const result = serializeBookingForAdmin(updatedBooking);
+
+    try {
+      await NotificationServices.notifyAdminBookingUpdated({
+        actorName: getActorLabel(actor),
+        bookingId: result.bookingId,
+        message: `Status booking ${result.bookingCode} diubah menjadi ${result.status.booking}`,
+        title: "Status booking berubah",
       });
-
-      return serializeBookingForAdmin(updatedBooking);
-    });
-
-    await NotificationServices.notifyAdminBookingUpdated({
-      actorName: getActorLabel(actor),
-      bookingId: result.bookingId,
-      message: `Status booking ${result.bookingCode} diubah menjadi ${result.status.booking}`,
-      title: "Status booking berubah",
-    });
+    } catch (error) {
+      console.error("notifyAdminBookingUpdated failed", error);
+    }
 
     return result;
   },

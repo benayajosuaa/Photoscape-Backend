@@ -42,17 +42,27 @@ async function createNotifications(payloads) {
     if (payloads.length === 0) {
         return [];
     }
-    const notifications = await prisma.$transaction(payloads.map(payload => prisma.notification.create({
-        data: {
-            bookingId: payload.bookingId ?? null,
-            isRead: false,
-            message: payload.message,
-            metadata: payload.metadata ?? Prisma.JsonNull,
-            title: payload.title,
-            type: payload.type,
-            userId: payload.userId,
-        },
-    })));
+    const notifications = [];
+    for (const payload of payloads) {
+        try {
+            const created = await prisma.notification.create({
+                data: {
+                    bookingId: payload.bookingId ?? null,
+                    isRead: false,
+                    message: payload.message,
+                    metadata: payload.metadata ?? Prisma.JsonNull,
+                    title: payload.title,
+                    type: payload.type,
+                    userId: payload.userId,
+                },
+            });
+            notifications.push(created);
+        }
+        catch (error) {
+            // Notification should not break booking/payment operational flow.
+            console.error("createNotifications failed for recipient", payload.userId, error);
+        }
+    }
     for (const notification of notifications) {
         emitNotification(notification);
     }

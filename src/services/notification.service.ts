@@ -79,9 +79,11 @@ async function createNotifications(payloads: NotificationPayload[]) {
     return [];
   }
 
-  const notifications = await prisma.$transaction(
-    payloads.map(payload =>
-      prisma.notification.create({
+  const notifications: Notification[] = [];
+
+  for (const payload of payloads) {
+    try {
+      const created = await prisma.notification.create({
         data: {
           bookingId: payload.bookingId ?? null,
           isRead: false,
@@ -91,9 +93,13 @@ async function createNotifications(payloads: NotificationPayload[]) {
           type: payload.type,
           userId: payload.userId,
         },
-      })
-    )
-  );
+      });
+      notifications.push(created);
+    } catch (error) {
+      // Notification should not break booking/payment operational flow.
+      console.error("createNotifications failed for recipient", payload.userId, error);
+    }
+  }
 
   for (const notification of notifications) {
     emitNotification(notification);
