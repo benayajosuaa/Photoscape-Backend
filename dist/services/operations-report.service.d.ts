@@ -61,6 +61,10 @@ export declare const OperationsReportServices: {
                 total: number;
                 rate: number;
             };
+            bookingTrend: {
+                label: string;
+                value: number;
+            }[];
             adminActivityCount: number;
         };
     }>;

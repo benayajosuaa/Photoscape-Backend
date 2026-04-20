@@ -41,6 +41,24 @@ function formatDateTime(value: Date) {
   }).format(value);
 }
 
+// Dashboard/admin memakai server-clock UTC untuk jam booking,
+// jadi notifikasi perubahan jadwal harus konsisten agar tidak bergeser timezone.
+function formatDateTimeServerClock(value: Date) {
+  const day = new Intl.DateTimeFormat("id-ID", {
+    weekday: "long",
+    timeZone: "UTC",
+  }).format(value);
+  const date = new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(value);
+  const hh = String(value.getUTCHours()).padStart(2, "0");
+  const mm = String(value.getUTCMinutes()).padStart(2, "0");
+  return `${day}, ${date} pukul ${hh}.${mm}`;
+}
+
 function formatMoney(value: number) {
   return `Rp ${value.toLocaleString("id-ID")}`;
 }
@@ -127,6 +145,7 @@ async function loadBookingNotificationContext(bookingId: string) {
           studio: true,
         },
       },
+      ticket: true,
     },
   });
 
@@ -135,6 +154,10 @@ async function loadBookingNotificationContext(bookingId: string) {
   }
 
   return booking;
+}
+
+function buildQrImageUrl(value: string) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=0&data=${encodeURIComponent(value)}`;
 }
 
 async function getAdminRecipients(locationId: string, excludeUserIds: string[] = []) {
@@ -511,23 +534,46 @@ export const NotificationServices = {
   }) {
     const booking = await loadBookingNotificationContext(params.bookingId);
     const actorLabel = params.actorName?.trim() || "Admin";
-    const scheduleLabel = formatDateTime(booking.schedule.startTime);
+    const scheduleLabel = formatDateTimeServerClock(booking.schedule.startTime);
     const message = `Jadwal booking ${booking.bookingCode} diubah oleh ${actorLabel}.`;
+    const qrValue = booking.ticket?.qrCode ?? "";
+    const hasQr = Boolean(qrValue);
+    const qrImageSection = hasQr
+      ? `
+      <div style="margin-top:20px;padding:16px;border:1px solid #e3d0d8;border-radius:14px;background:#fff7fa;">
+        <p style="margin:0 0 10px;font-weight:700;color:#183153;">QR Ticket Terbaru</p>
+        <img src="${buildQrImageUrl(qrValue)}" alt="QR Ticket ${booking.bookingCode}" width="220" height="220" style="display:block;margin:0 auto 10px;background:#fff;border-radius:10px;padding:8px;border:1px solid #ddd;" />
+        <p style="margin:0;font-size:13px;color:#41556f;word-break:break-all;"><strong>QR Value:</strong> ${qrValue}</p>
+      </div>`
+      : "";
+    const scheduleChangedHtml = `<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Perubahan Jadwal Booking</title>
+</head>
+<body style="margin:0;padding:24px;background:#f5f1ea;font-family:Arial,sans-serif;color:#183153;">
+  <div style="max-width:620px;margin:0 auto;background:#ffffff;border-radius:18px;padding:28px;box-shadow:0 14px 32px rgba(24,49,83,0.10);">
+    <div style="display:inline-block;padding:8px 14px;border-radius:999px;background:#183153;color:#fff;font-weight:700;font-size:12px;">Photoscape</div>
+    <h1 style="margin:18px 0 14px;font-size:28px;line-height:1.25;">Jadwal Booking Berubah</h1>
+    <p style="margin:0 0 12px;line-height:1.7;color:#41556f;">${actorLabel} mengubah jadwal booking <strong>${booking.bookingCode}</strong>.</p>
+    <p style="margin:0 0 12px;line-height:1.7;color:#41556f;">Jadwal terbaru: <strong>${scheduleLabel}</strong>.</p>
+    <p style="margin:0 0 12px;line-height:1.7;color:#41556f;">Lokasi: <strong>${booking.location.name}</strong>, Studio: <strong>${booking.schedule.studio.name}</strong>.</p>
+    ${qrImageSection}
+    <p style="margin-top:18px;font-weight:700;color:#183153;">Gunakan QR terbaru ini saat check-in di admin cabang terkait.</p>
+  </div>
+</body>
+</html>`;
 
     await createCustomerNotification(booking, {
-      emailHtml: buildCustomerEmailHtml({
-        heading: "Jadwal Booking Berubah",
-        lines: [
-          `${actorLabel} mengubah jadwal booking ${booking.bookingCode}.`,
-          `Jadwal terbaru Anda adalah ${scheduleLabel} di studio ${booking.schedule.studio.name}, ${booking.location.name}.`,
-        ],
-        cta: "Silakan cek detail booking terbaru di aplikasi.",
-      }),
+      emailHtml: scheduleChangedHtml,
       emailSubject: "Perubahan Jadwal Booking Photoscape",
       emailText: [
         `Jadwal booking ${booking.bookingCode} berubah.`,
         `Jadwal terbaru: ${scheduleLabel}`,
         `Diubah oleh: ${actorLabel}`,
+        ...(hasQr ? [`QR terbaru: ${qrValue}`] : []),
       ].join("\n"),
       message,
       title: "Jadwal booking berubah",

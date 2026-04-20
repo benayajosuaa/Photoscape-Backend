@@ -13,7 +13,7 @@ function actorFrom(req) {
     };
 }
 function commonQuery(req) {
-    const keys = ['page', 'limit', 'startDate', 'endDate', 'period', 'search', 'status', 'method', 'locationId', 'studioId'];
+    const keys = ['page', 'limit', 'startDate', 'endDate', 'period', 'search', 'status', 'method', 'locationId', 'studioId', 'userId', 'action'];
     return keys.reduce((acc, key) => {
         const value = single(req.query[key])?.trim();
         if (value)

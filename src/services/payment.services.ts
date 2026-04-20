@@ -26,8 +26,10 @@ function getBaseUrl() {
   return process.env.APP_BASE_URL ?? `http://localhost:${process.env.PORT ?? 8080}`;
 }
 
-export function buildTicketQrCode(bookingCode: string) {
-  return `PHOTOSCAPE-TICKET:${bookingCode}`;
+export function buildTicketQrCode(bookingCode: string, versionTag?: string) {
+  const base = `PHOTOSCAPE-TICKET:${bookingCode}`;
+  const tag = String(versionTag ?? "").trim();
+  return tag ? `${base}|${tag}` : base;
 }
 
 export async function expireStaleBookings() {
@@ -146,7 +148,7 @@ export async function finalizePaidBooking(tx: Prisma.TransactionClient, paymentI
     await tx.ticket.update({
       where: { bookingId: payment.booking.id },
       data: {
-        qrCode: buildTicketQrCode(payment.booking.bookingCode),
+        qrCode: buildTicketQrCode(payment.booking.bookingCode, payment.booking.schedule.id),
         status: "active",
         expiredAt: payment.booking.schedule.endTime,
       },
@@ -155,7 +157,7 @@ export async function finalizePaidBooking(tx: Prisma.TransactionClient, paymentI
     await tx.ticket.create({
       data: {
         bookingId: payment.booking.id,
-        qrCode: buildTicketQrCode(payment.booking.bookingCode),
+        qrCode: buildTicketQrCode(payment.booking.bookingCode, payment.booking.schedule.id),
         expiredAt: payment.booking.schedule.endTime,
       },
     });

@@ -328,7 +328,17 @@ export declare const BookingServices: {
         bookingId: string;
         bookingCode: string;
         email: string;
-        status: string;
+        status: "sent";
+    }>;
+    resendTicketInvoiceByBookingId(bookingId: string): Promise<{
+        bookingId: string;
+        bookingCode: string;
+        email: string;
+        status: "sent";
+    } | {
+        bookingId: string;
+        bookingCode: string;
+        status: "skipped";
     }>;
     getQrisPaymentPage(paymentId: string): Promise<string>;
     confirmQrisPaymentFromPage(paymentId: string): Promise<string>;

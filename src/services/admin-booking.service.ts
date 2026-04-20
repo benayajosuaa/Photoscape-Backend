@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
 import type { BookingStatus, PaymentStatus } from "@prisma/client";
 import { prisma } from "../utils/prisma.js";
-import { buildPaymentExpiry } from "./payment.services.js";
+import { BookingServices } from "./booking.service.js";
+import { buildPaymentExpiry, buildTicketQrCode } from "./payment.services.js";
 import { NotificationServices } from "./notification.service.js";
 
 const ACTIVE_BOOKING_STATUSES: BookingStatus[] = ["pending", "confirmed", "completed"];
@@ -259,6 +260,32 @@ async function createAuditLog(
       newData: params.newData === undefined ? Prisma.JsonNull : (normalizeJson(params.newData) as Prisma.InputJsonValue),
     },
   });
+}
+
+async function runAdminInteractiveTransaction<T>(runner: (tx: Prisma.TransactionClient) => Promise<T>) {
+  const MAX_ATTEMPTS = 2;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await prisma.$transaction(runner, {
+        maxWait: 10_000,
+        timeout: 30_000,
+      });
+    } catch (error: any) {
+      const message = String(error?.message ?? "");
+      const code = String(error?.code ?? "");
+      const isTransientTransactionError =
+        code === "P2028" ||
+        message.includes("Transaction API error") ||
+        message.includes("Transaction not found");
+
+      if (!isTransientTransactionError || attempt === MAX_ATTEMPTS) {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error("Transaksi gagal diproses");
 }
 
 function ensureAdminEditableStatus(status: BookingStatus) {
@@ -549,7 +576,7 @@ export const AdminBookingServices = {
   },
 
   async updateBooking(actor: AdminActor, bookingId: string, payload: UpdateBookingPayload) {
-    const result = await prisma.$transaction(async tx => {
+    const result = await runAdminInteractiveTransaction(async tx => {
       const booking = await loadBookingOrThrow(tx, bookingId);
       ensureActorCanAccessBooking(actor, booking.locationId);
       ensureAdminEditableStatus(booking.status);
@@ -674,7 +701,7 @@ export const AdminBookingServices = {
       throw new Error("scheduleId atau startTime wajib diisi");
     }
 
-    const result = await prisma.$transaction(async tx => {
+    const result = await runAdminInteractiveTransaction(async tx => {
       const booking = await loadBookingOrThrow(tx, bookingId);
       ensureActorCanAccessBooking(actor, booking.locationId);
       ensureAdminCanReschedule(booking.status);
@@ -750,6 +777,7 @@ export const AdminBookingServices = {
         await tx.ticket.update({
           where: { bookingId: booking.id },
           data: {
+            qrCode: buildTicketQrCode(booking.bookingCode, nextSchedule.id),
             expiredAt: nextSchedule.endTime,
           },
         });
@@ -775,6 +803,8 @@ export const AdminBookingServices = {
       bookingId: result.bookingId,
     });
 
+    await BookingServices.resendTicketInvoiceByBookingId(result.bookingId);
+
     return result;
   },
 
@@ -785,7 +815,7 @@ export const AdminBookingServices = {
       throw new Error("Alasan pembatalan wajib diisi");
     }
 
-    const result = await prisma.$transaction(async tx => {
+    const result = await runAdminInteractiveTransaction(async tx => {
       const booking = await loadBookingOrThrow(tx, bookingId);
       ensureActorCanAccessBooking(actor, booking.locationId);
 

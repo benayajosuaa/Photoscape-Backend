@@ -258,6 +258,17 @@ export const OperationsReportServices = {
         const paidBookings = bookings.filter(item => item.payment?.status === "paid");
         const todayStart = startOfDay(new Date());
         const todayEnd = endOfDay(new Date());
+        const bookingTrendMap = new Map();
+        for (let i = 6; i >= 0; i -= 1) {
+            const d = startOfDay(new Date(Date.UTC(todayStart.getUTCFullYear(), todayStart.getUTCMonth(), todayStart.getUTCDate() - i)));
+            bookingTrendMap.set(d.toISOString().slice(0, 10), 0);
+        }
+        for (const booking of bookings) {
+            const key = startOfDay(booking.createdAt).toISOString().slice(0, 10);
+            if (bookingTrendMap.has(key)) {
+                bookingTrendMap.set(key, (bookingTrendMap.get(key) ?? 0) + 1);
+            }
+        }
         const todayPayments = bookings.filter(item => item.payment &&
             item.payment.createdAt >= todayStart &&
             item.payment.createdAt <= todayEnd);
@@ -329,6 +340,10 @@ export const OperationsReportServices = {
                     total: bookings.filter(item => item.status === "cancelled").length,
                     rate: bookings.length === 0 ? 0 : toPercent((bookings.filter(item => item.status === "cancelled").length / bookings.length) * 100),
                 },
+                bookingTrend: Array.from(bookingTrendMap.entries()).map(([label, value]) => ({
+                    label,
+                    value,
+                })),
                 adminActivityCount: auditLogCount,
             },
         };

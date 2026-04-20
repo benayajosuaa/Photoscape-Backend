@@ -196,6 +196,35 @@ async function getBookingOwnedByUser(userId: string, bookingId: string) {
   return booking;
 }
 
+async function getBookingForInvoiceById(bookingId: string) {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      location: true,
+      package: true,
+      schedule: {
+        include: {
+          studio: true,
+        },
+      },
+      addOns: {
+        include: {
+          addOn: true,
+        },
+      },
+      payment: true,
+      ticket: true,
+      user: true,
+    },
+  });
+
+  if (!booking) {
+    throw new Error("Booking tidak ditemukan");
+  }
+
+  return booking;
+}
+
 function formatCurrency(value: number) {
   return `Rp ${value.toLocaleString("id-ID")}`;
 }
@@ -262,6 +291,58 @@ function buildTicketInvoiceEmailHtml(params: {
   </div>
 </body>
 </html>`;
+}
+
+async function sendTicketInvoiceEmailForBooking(booking: Awaited<ReturnType<typeof getBookingForInvoiceById>>) {
+  if (!booking.ticket) {
+    throw new Error("Tiket belum tersedia. Selesaikan pembayaran terlebih dahulu.");
+  }
+
+  if (booking.payment?.status !== "paid") {
+    throw new Error("Invoice belum bisa dikirim karena pembayaran belum sukses.");
+  }
+
+  if (!booking.user?.email) {
+    throw new Error("Email user tidak ditemukan.");
+  }
+
+  const html = buildTicketInvoiceEmailHtml({
+    bookingCode: booking.bookingCode,
+    customerName: booking.customerName,
+    customerPhone: booking.customerPhone,
+    durationMinutes: booking.package.durationMinutes,
+    locationName: booking.location.name,
+    packageName: booking.package.name,
+    qrCodeValue: booking.ticket.qrCode,
+    scheduleDate: booking.schedule.date,
+    scheduleStartTime: booking.schedule.startTime,
+    totalPrice: booking.totalPrice,
+  });
+
+  await sendEmail({
+    to: booking.user.email,
+    subject: `Invoice Booking Photoscape - ${booking.bookingCode}`,
+    text: [
+      `Nomor Pesanan: ${booking.bookingCode}`,
+      `Nama: ${booking.customerName}`,
+      `No. HP: ${booking.customerPhone}`,
+      `Paket: ${booking.package.name}`,
+      `Durasi: ${booking.package.durationMinutes} menit`,
+      `Tanggal: ${formatDateLabel(booking.schedule.date)}`,
+      `Waktu: ${formatTimeLabel(booking.schedule.startTime)}`,
+      `Lokasi: ${booking.location.name}`,
+      `Total: ${formatCurrency(booking.totalPrice)}`,
+      `QR Code: ${booking.ticket.qrCode}`,
+    ].join("\n"),
+    html,
+  });
+
+  return {
+    bookingId: booking.id,
+    bookingCode: booking.bookingCode,
+    email: booking.user.email,
+    status: "sent" as const,
+  };
 }
 
 function calculateAddOnTotal(addOns: Array<{ quantity: number; addOn: { price: number } }>) {
@@ -974,56 +1055,22 @@ export const BookingServices = {
   async sendTicketInvoiceEmail(userId: string, bookingId: string) {
     await syncBookingPayments();
     const booking = await getBookingOwnedByUser(userId, bookingId);
+    return sendTicketInvoiceEmailForBooking(booking);
+  },
 
-    if (!booking.ticket) {
-      throw new Error("Tiket belum tersedia. Selesaikan pembayaran terlebih dahulu.");
+  async resendTicketInvoiceByBookingId(bookingId: string) {
+    await syncBookingPayments();
+    const booking = await getBookingForInvoiceById(bookingId);
+
+    if (!booking.ticket || booking.payment?.status !== "paid" || !booking.user?.email) {
+      return {
+        bookingId: booking.id,
+        bookingCode: booking.bookingCode,
+        status: "skipped" as const,
+      };
     }
 
-    if (booking.payment?.status !== "paid") {
-      throw new Error("Invoice belum bisa dikirim karena pembayaran belum sukses.");
-    }
-
-    if (!booking.user?.email) {
-      throw new Error("Email user tidak ditemukan.");
-    }
-
-    const html = buildTicketInvoiceEmailHtml({
-      bookingCode: booking.bookingCode,
-      customerName: booking.customerName,
-      customerPhone: booking.customerPhone,
-      durationMinutes: booking.package.durationMinutes,
-      locationName: booking.location.name,
-      packageName: booking.package.name,
-      qrCodeValue: booking.ticket.qrCode,
-      scheduleDate: booking.schedule.date,
-      scheduleStartTime: booking.schedule.startTime,
-      totalPrice: booking.totalPrice,
-    });
-
-    await sendEmail({
-      to: booking.user.email,
-      subject: `Invoice Booking Photoscape - ${booking.bookingCode}`,
-      text: [
-        `Nomor Pesanan: ${booking.bookingCode}`,
-        `Nama: ${booking.customerName}`,
-        `No. HP: ${booking.customerPhone}`,
-        `Paket: ${booking.package.name}`,
-        `Durasi: ${booking.package.durationMinutes} menit`,
-        `Tanggal: ${formatDateLabel(booking.schedule.date)}`,
-        `Waktu: ${formatTimeLabel(booking.schedule.startTime)}`,
-        `Lokasi: ${booking.location.name}`,
-        `Total: ${formatCurrency(booking.totalPrice)}`,
-        `QR Code: ${booking.ticket.qrCode}`,
-      ].join("\n"),
-      html,
-    });
-
-    return {
-      bookingId: booking.id,
-      bookingCode: booking.bookingCode,
-      email: booking.user.email,
-      status: "sent",
-    };
+    return sendTicketInvoiceEmailForBooking(booking);
   },
 
   async getQrisPaymentPage(paymentId: string) {

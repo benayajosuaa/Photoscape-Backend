@@ -20,6 +20,8 @@ type CommonQuery = {
   method?: string;
   locationId?: string;
   studioId?: string;
+  userId?: string;
+  action?: string;
 };
 
 type DateRange = {
@@ -1007,27 +1009,39 @@ export const OwnerAdminServices = {
 
   async getLogs(_actor: Actor, query: CommonQuery) {
     const { page, limit, skip } = parsePagination(query);
-    const { start, end } = parseRange(query, 'weekly');
+    const { start, end } = parseRange(query, 'monthly');
+    const normalizedAction = query.action?.trim() || query.search?.trim();
+    const normalizedUserId = query.userId?.trim();
+    const where: Prisma.AuditLogWhereInput = {
+      createdAt: {
+        gte: start,
+        lte: end,
+      },
+      ...(normalizedAction
+        ? {
+            action: {
+              contains: normalizedAction,
+              mode: 'insensitive',
+            },
+          }
+        : {}),
+      ...(normalizedUserId ? { userId: normalizedUserId } : {}),
+    };
 
     const [rows, total] = await Promise.all([
       prisma.auditLog.findMany({
-        where: {
-          createdAt: {
-            gte: start,
-            lte: end,
-          },
-          ...(query.search?.trim()
-            ? {
-                action: {
-                  contains: query.search.trim(),
-                  mode: 'insensitive',
-                },
-              }
-            : {}),
-        },
+        where,
         include: {
-          user: true,
-          booking: true,
+          user: {
+            include: {
+              location: true,
+            },
+          },
+          booking: {
+            include: {
+              location: true,
+            },
+          },
         },
         orderBy: {
           createdAt: 'desc',
@@ -1035,14 +1049,7 @@ export const OwnerAdminServices = {
         skip,
         take: limit,
       }),
-      prisma.auditLog.count({
-        where: {
-          createdAt: {
-            gte: start,
-            lte: end,
-          },
-        },
-      }),
+      prisma.auditLog.count({ where }),
     ]);
 
     return {
@@ -1056,6 +1063,8 @@ export const OwnerAdminServices = {
         entityType: item.entityType,
         entityId: item.entityId,
         adminName: item.user?.name ?? '-',
+        adminRole: item.user?.role ?? null,
+        locationName: item.user?.location?.name ?? item.booking?.location?.name ?? '-',
         bookingCode: item.booking?.bookingCode ?? null,
         createdAt: item.createdAt.toISOString(),
       })),

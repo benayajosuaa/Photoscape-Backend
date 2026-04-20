@@ -17,7 +17,7 @@ function actorFrom(req: Request) {
 }
 
 function commonQuery(req: Request) {
-  const keys = ['page', 'limit', 'startDate', 'endDate', 'period', 'search', 'status', 'method', 'locationId', 'studioId'] as const;
+  const keys = ['page', 'limit', 'startDate', 'endDate', 'period', 'search', 'status', 'method', 'locationId', 'studioId', 'userId', 'action'] as const;
 
   return keys.reduce<Record<string, string>>((acc, key) => {
     const value = single(req.query[key] as string | string[] | undefined)?.trim();

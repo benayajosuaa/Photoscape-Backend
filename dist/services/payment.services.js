@@ -18,8 +18,10 @@ export function buildPaymentExpiry() {
 function getBaseUrl() {
     return process.env.APP_BASE_URL ?? `http://localhost:${process.env.PORT ?? 8080}`;
 }
-export function buildTicketQrCode(bookingCode) {
-    return `PHOTOSCAPE-TICKET:${bookingCode}`;
+export function buildTicketQrCode(bookingCode, versionTag) {
+    const base = `PHOTOSCAPE-TICKET:${bookingCode}`;
+    const tag = String(versionTag ?? "").trim();
+    return tag ? `${base}|${tag}` : base;
 }
 export async function expireStaleBookings() {
     const now = new Date();
@@ -118,7 +120,7 @@ export async function finalizePaidBooking(tx, paymentId, paidAt) {
         await tx.ticket.update({
             where: { bookingId: payment.booking.id },
             data: {
-                qrCode: buildTicketQrCode(payment.booking.bookingCode),
+                qrCode: buildTicketQrCode(payment.booking.bookingCode, payment.booking.schedule.id),
                 status: "active",
                 expiredAt: payment.booking.schedule.endTime,
             },
@@ -128,7 +130,7 @@ export async function finalizePaidBooking(tx, paymentId, paidAt) {
         await tx.ticket.create({
             data: {
                 bookingId: payment.booking.id,
-                qrCode: buildTicketQrCode(payment.booking.bookingCode),
+                qrCode: buildTicketQrCode(payment.booking.bookingCode, payment.booking.schedule.id),
                 expiredAt: payment.booking.schedule.endTime,
             },
         });

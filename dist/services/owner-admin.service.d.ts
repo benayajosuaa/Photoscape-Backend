@@ -15,6 +15,8 @@ type CommonQuery = {
     method?: string;
     locationId?: string;
     studioId?: string;
+    userId?: string;
+    action?: string;
 };
 export declare const OwnerAdminServices: {
     getDashboard(actor: Actor, query: CommonQuery): Promise<{
@@ -276,6 +278,8 @@ export declare const OwnerAdminServices: {
             entityType: string;
             entityId: string;
             adminName: string;
+            adminRole: import(".prisma/client").$Enums.UserRole | null;
+            locationName: string;
             bookingCode: string | null;
             createdAt: string;
         }[];
