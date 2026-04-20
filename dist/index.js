@@ -15,7 +15,10 @@ import { seedPrivilegedUser } from "./services/auth.service.js";
 import { NotificationServices } from "./services/notification.service.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.resolve(__dirname, "../.env"), override: true });
+const isVercelRuntime = Boolean(process.env.VERCEL);
+if (!isVercelRuntime) {
+    dotenv.config({ path: path.resolve(__dirname, "../.env") });
+}
 async function seedPrivilegedUsersSafe() {
     const medanAdminEmail = process.env.ADMIN_EMAIL_MEDAN ?? process.env.ADMIN_EMAIL;
     const medanAdminPassword = process.env.ADMIN_PASSWORD_MEDAN ?? process.env.ADMIN_PASSWORD;
@@ -70,6 +73,7 @@ async function seedPrivilegedUsersSafe() {
     }
 }
 const app = express();
+app.set("trust proxy", 1);
 // middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -88,8 +92,20 @@ const authLimiter = rateLimit({
     message: { error: "Terlalu banyak request login. Coba lagi sebentar." },
 });
 app.use((req, res, next) => {
-    const allowedOrigin = process.env.FRONTEND_URL || "http://localhost:3000";
-    res.header("Access-Control-Allow-Origin", allowedOrigin);
+    const requestOrigin = req.header("origin") ?? "";
+    const configuredOrigins = (process.env.FRONTEND_URL ?? "")
+        .split(",")
+        .map(item => item.trim())
+        .filter(Boolean);
+    const fallbackOrigins = ["http://localhost:3000"];
+    const vercelPreviewOrigin = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "";
+    const allowedOrigins = new Set([...configuredOrigins, ...fallbackOrigins, vercelPreviewOrigin].filter(Boolean));
+    const resolvedOrigin = requestOrigin && allowedOrigins.has(requestOrigin)
+        ? requestOrigin
+        : configuredOrigins[0] || fallbackOrigins[0] || "";
+    if (resolvedOrigin) {
+        res.header("Access-Control-Allow-Origin", resolvedOrigin);
+    }
     res.header("Vary", "Origin");
     res.header("Access-Control-Allow-Methods", "GET,POST,PATCH,PUT,DELETE,OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -109,6 +125,28 @@ app.get("/", (req, res) => {
 app.get("/api/test", (req, res) => {
     res.json({ success: true, message: "API working properly" });
 });
+app.get("/api/internal/reminder-dispatch", async (req, res) => {
+    const cronSecret = process.env.CRON_SECRET?.trim() ?? "";
+    const authHeader = req.header("authorization") ?? "";
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : "";
+    const isVercelCron = req.header("x-vercel-cron") === "1";
+    if (cronSecret) {
+        if (bearerToken !== cronSecret) {
+            return res.status(401).json({ message: "Unauthorized cron request" });
+        }
+    }
+    else if (isVercelRuntime && !isVercelCron) {
+        return res.status(401).json({ message: "Unauthorized cron request" });
+    }
+    try {
+        await NotificationServices.runReminderDispatch();
+        return res.status(200).json({ ok: true, job: "reminder-dispatch" });
+    }
+    catch (error) {
+        console.error("manual reminder dispatch failed", error);
+        return res.status(500).json({ message: error?.message ?? "reminder dispatch failed" });
+    }
+});
 app.post("/api/auth/register", registerExpressController);
 app.post("/api/auth/login", authLimiter, loginExpressController);
 app.post("/api/auth/logout", authenticateExpress, logoutExpressController);
@@ -124,8 +162,14 @@ app.use("/api/manager", managerRoute);
 app.use("/api/bookings", bookingRoute);
 app.use("/api/notifications", notificationRoute);
 app.use("/api", ownerAdminRoute);
-NotificationServices.startJobs();
-void seedPrivilegedUsersSafe();
+const shouldRunStartupJobs = !isVercelRuntime && process.env.DISABLE_STARTUP_JOBS !== "true";
+const shouldRunStartupSeed = !isVercelRuntime && process.env.DISABLE_STARTUP_SEED !== "true";
+if (shouldRunStartupJobs) {
+    NotificationServices.startJobs();
+}
+if (shouldRunStartupSeed) {
+    void seedPrivilegedUsersSafe();
+}
 // Serverless
 export default app;
 // Local
