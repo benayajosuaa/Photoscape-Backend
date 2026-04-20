@@ -10,8 +10,8 @@ export declare function expireStaleBookings(): Promise<void>;
 export declare function finalizePaidBooking(tx: Prisma.TransactionClient, paymentId: string, paidAt: Date): Promise<{
     id: string;
     createdAt: Date;
-    status: import(".prisma/client").$Enums.PaymentStatus;
     bookingId: string;
+    status: import(".prisma/client").$Enums.PaymentStatus;
     amount: number;
     method: import(".prisma/client").$Enums.PaymentMethod;
     gatewayReference: string | null;

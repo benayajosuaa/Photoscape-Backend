@@ -27,28 +27,28 @@ type CancelBookingPayload = {
 export declare const BookingServices: {
     getMeta(params: BookingMetaParams): Promise<{
         locations: {
-            name: string;
             id: string;
+            name: string;
         }[];
         studioTypes: string[];
         studios: {
-            name: string;
             id: string;
+            name: string;
             locationId: string;
             type: import(".prisma/client").$Enums.StudioType;
             capacity: number;
             isActive: boolean;
         }[];
         packages: {
-            name: string;
             id: string;
+            name: string;
             price: number;
             durationMinutes: number;
             maxCapacity: number;
         }[];
         addOns: {
-            name: string;
             id: string;
+            name: string;
             price: number;
         }[];
         paymentMethods: import(".prisma/client").$Enums.PaymentMethod[];
@@ -56,8 +56,8 @@ export declare const BookingServices: {
     }>;
     getAvailability(params: AvailabilityParams): Promise<{
         location: {
-            name: string;
             id: string;
+            name: string;
         };
         date: string;
         package: {
@@ -69,8 +69,8 @@ export declare const BookingServices: {
         };
         studioType: string | null;
         studios: {
-            name: string;
             id: string;
+            name: string;
             locationId: string;
             type: import(".prisma/client").$Enums.StudioType;
             capacity: number;
@@ -99,14 +99,14 @@ export declare const BookingServices: {
         packages?: never;
     } | {
         location: {
-            name: string;
             id: string;
+            name: string;
         };
         date: string;
         studioType: string | null;
         studios: {
-            name: string;
             id: string;
+            name: string;
             locationId: string;
             type: import(".prisma/client").$Enums.StudioType;
             capacity: number;

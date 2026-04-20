@@ -1,14 +1,18 @@
 import express from "express";
 import type { Request as ExpressRequest, Response as ExpressResponse } from "express";
 import dotenv from "dotenv";
+import rateLimit from "express-rate-limit";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assignRoleExpressController, findUserExpressController, loginExpressController, logoutExpressController, meExpressController, registerExpressController, sendOtpExpressController, verifyOtpExpressController,
+refreshExpressController,
 } from "./controllers/auth.controller.js";
 import { authenticateExpress, requireRoles } from "./middlewares/auth.middleware.js";
 import adminBookingRoute from "./routes/admin-booking.route.js";
 import bookingRoute from "./routes/booking.route.js";
+import managerRoute from "./routes/manager.route.js";
 import notificationRoute from "./routes/notification.route.js";
+import ownerAdminRoute from "./routes/owner-admin.route.js";
 import operationsReportRoute from "./routes/operations-report.route.js";
 import { seedPrivilegedUser } from "./services/auth.service.js";
 import { NotificationServices } from "./services/notification.service.js";
@@ -81,6 +85,21 @@ const app = express();
 // middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use((_, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  next();
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak request login. Coba lagi sebentar." },
+});
 app.use((req: ExpressRequest, res: ExpressResponse, next) => {
   const allowedOrigin = process.env.FRONTEND_URL || "http://localhost:3000";
 
@@ -110,8 +129,9 @@ app.get("/api/test", (req: ExpressRequest, res: ExpressResponse) => {
 });
 
 app.post("/api/auth/register", registerExpressController);
-app.post("/api/auth/login", loginExpressController);
+app.post("/api/auth/login", authLimiter, loginExpressController);
 app.post("/api/auth/logout", authenticateExpress, logoutExpressController);
+app.post("/api/auth/refresh", refreshExpressController);
 app.post("/api/auth/send-otp", sendOtpExpressController);
 app.post("/api/auth/verify-otp", verifyOtpExpressController);
 app.get("/api/auth/me", authenticateExpress, meExpressController);
@@ -120,8 +140,10 @@ app.get("/api/admin/users/find", authenticateExpress, requireRoles("owner", "adm
 app.patch("/api/admin/users/role", authenticateExpress, requireRoles("owner"), assignRoleExpressController);
 app.use("/api/admin/bookings", adminBookingRoute);
 app.use("/api/admin", operationsReportRoute);
+app.use("/api/manager", managerRoute);
 app.use("/api/bookings", bookingRoute);
 app.use("/api/notifications", notificationRoute);
+app.use("/api", ownerAdminRoute);
 
 NotificationServices.startJobs();
 void seedPrivilegedUsersSafe();

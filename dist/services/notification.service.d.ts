@@ -26,9 +26,9 @@ export declare const NotificationServices: {
         notifications: {
             id: string;
             createdAt: Date;
-            message: string;
             userId: string;
             bookingId: string | null;
+            message: string;
             type: import(".prisma/client").$Enums.NotificationType;
             title: string;
             metadata: Prisma.JsonValue | null;

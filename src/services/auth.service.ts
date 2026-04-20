@@ -2,6 +2,7 @@ import bcrypt from 'bcrypt';
 import type { User as PrismaUser, UserRole as PrismaUserRole } from '@prisma/client';
 import { generateToken } from '../utils/jwt.js';
 import { prisma } from '../utils/prisma.js';
+import { AuditLogServices } from './audit-log.service.js';
 
 export const USER_ROLES = ['customer', 'admin', 'manager', 'owner'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
@@ -143,6 +144,22 @@ export async function loginUser(email: string, password: string) {
   if (!user) throw new Error("User tidak ditemukan");
   if (!user.password) throw new Error("User belum memiliki password");
 
+  const latestStatusLog = await prisma.auditLog.findFirst({
+    where: {
+      entityType: 'user',
+      entityId: user.id,
+      action: 'user.status.updated',
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  const maybeActive = (latestStatusLog?.newData as { isActive?: boolean } | null)?.isActive;
+  if (maybeActive === false) {
+    throw new Error('Akun nonaktif. Hubungi owner untuk aktivasi.');
+  }
+
   const valid = await bcrypt.compare(password, user.password);
   if (!valid) throw new Error("Password salah");
 
@@ -152,6 +169,17 @@ export async function loginUser(email: string, password: string) {
     locationName: user.location?.name ?? null,
     role: user.role,
     userId: user.id,
+  });
+
+  await AuditLogServices.write({
+    action: 'auth.login',
+    entityType: 'auth',
+    entityId: user.id,
+    userId: user.id,
+    newData: {
+      role: user.role,
+      email: user.email,
+    },
   });
 
   return {

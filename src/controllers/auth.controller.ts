@@ -11,8 +11,10 @@ import {
   startRegistration,
   type UserRole,
 } from '../services/auth.service.js';
+import { AuditLogServices } from '../services/audit-log.service.js';
+import { RefreshTokenServices } from '../services/refresh-token.service.js';
 import { generateOTP, verifyOTP } from '../services/otp.service.js';
-import { getTokenExpiration, revokeToken, SESSION_DURATION_HOURS } from '../utils/jwt.js';
+import { generateToken, getTokenExpiration, revokeToken, SESSION_DURATION_HOURS } from '../utils/jwt.js';
 import { sendOTPEmail } from '../utils/mailer.js';
 import { validateEmail } from '../utils/validator.js';
 
@@ -138,9 +140,17 @@ async function handleLogin(email: string, password: string) {
 
   try {
     const data = await loginUser(normalizedEmail, password);
+    const refreshToken = RefreshTokenServices.issue({
+      email: data.user.email,
+      role: data.user.role,
+      userId: data.user.id,
+      locationId: data.user.locationId ?? null,
+      locationName: data.user.location?.name ?? null,
+    });
     return {
       body: {
         ...data,
+        refreshToken,
         session: {
           expiresAt: getTokenExpiration(data.token),
           maxAgeHours: SESSION_DURATION_HOURS,
@@ -152,6 +162,44 @@ async function handleLogin(email: string, password: string) {
     return {
       body: { error: err.message },
       status: 400,
+    };
+  }
+}
+
+async function handleRefresh(refreshToken: string) {
+  if (!refreshToken) {
+    return {
+      body: { error: 'Refresh token wajib diisi' },
+      status: 400,
+    };
+  }
+
+  try {
+    const payload = RefreshTokenServices.verify(refreshToken);
+    const nextAccessToken = generateToken({
+      email: payload.email,
+      locationId: payload.locationId ?? null,
+      locationName: payload.locationName ?? null,
+      role: payload.role,
+      userId: payload.userId,
+    });
+    const nextRefreshToken = RefreshTokenServices.rotate(refreshToken, payload);
+
+    return {
+      body: {
+        token: nextAccessToken,
+        refreshToken: nextRefreshToken,
+        session: {
+          expiresAt: getTokenExpiration(nextAccessToken),
+          maxAgeHours: SESSION_DURATION_HOURS,
+        },
+      },
+      status: 200,
+    };
+  } catch (error: any) {
+    return {
+      body: { error: error?.message ?? 'Refresh token tidak valid' },
+      status: 401,
     };
   }
 }
@@ -228,7 +276,7 @@ async function handleVerifyOtp(email: string, otp: string) {
   }
 }
 
-function handleLogout(token: string | null) {
+function handleLogout(token: string | null, refreshToken?: string | null) {
   if (!token) {
     return {
       body: { error: "No token" },
@@ -238,6 +286,9 @@ function handleLogout(token: string | null) {
 
   try {
     revokeToken(token);
+    if (refreshToken) {
+      RefreshTokenServices.revoke(refreshToken);
+    }
     return {
       body: { message: "Logout berhasil" },
       status: 200,
@@ -283,7 +334,27 @@ export async function logoutController(req: Request) {
     token = null;
   }
 
-  const result = handleLogout(token);
+  let refreshToken: string | null = null;
+  try {
+    const body = await req.json();
+    refreshToken = String(body?.refreshToken ?? '').trim() || null;
+  } catch {
+    refreshToken = null;
+  }
+
+  const result = handleLogout(token, refreshToken);
+  return Response.json(result.body, { status: result.status });
+}
+
+export async function refreshController(req: Request) {
+  let refreshToken = '';
+  try {
+    const body = await req.json();
+    refreshToken = String(body?.refreshToken ?? '').trim();
+  } catch {
+    refreshToken = '';
+  }
+  const result = await handleRefresh(refreshToken);
   return Response.json(result.body, { status: result.status });
 }
 
@@ -312,7 +383,20 @@ export async function verifyOtpExpressController(req: ExpressRequest, res: Expre
 }
 
 export function logoutExpressController(req: ExpressRequest, res: ExpressResponse) {
-  const result = handleLogout(req.authToken ?? null);
+  const refreshToken = String(req.body?.refreshToken ?? '').trim() || null;
+  const result = handleLogout(req.authToken ?? null, refreshToken);
+  void AuditLogServices.write({
+    action: 'auth.logout',
+    entityType: 'auth',
+    entityId: req.user?.userId ?? 'anonymous',
+    userId: req.user?.userId ?? null,
+  });
+  res.status(result.status).json(result.body);
+}
+
+export async function refreshExpressController(req: ExpressRequest, res: ExpressResponse) {
+  const refreshToken = String(req.body?.refreshToken ?? '').trim();
+  const result = await handleRefresh(refreshToken);
   res.status(result.status).json(result.body);
 }
 
