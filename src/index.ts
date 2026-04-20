@@ -1,7 +1,7 @@
 import express from "express";
 import type { Request as ExpressRequest, Response as ExpressResponse } from "express";
 import dotenv from "dotenv";
-import rateLimit from "express-rate-limit";
+import { rateLimit } from "express-rate-limit";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assignRoleExpressController, findUserExpressController, loginExpressController, logoutExpressController, meExpressController, registerExpressController, sendOtpExpressController, verifyOtpExpressController,

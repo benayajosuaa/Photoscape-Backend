@@ -1,6 +1,6 @@
 import express from "express";
 import dotenv from "dotenv";
-import rateLimit from "express-rate-limit";
+import { rateLimit } from "express-rate-limit";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assignRoleExpressController, findUserExpressController, loginExpressController, logoutExpressController, meExpressController, registerExpressController, sendOtpExpressController, verifyOtpExpressController, refreshExpressController, } from "./controllers/auth.controller.js";
