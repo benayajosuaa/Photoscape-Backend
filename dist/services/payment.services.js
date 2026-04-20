@@ -16,7 +16,15 @@ export function buildPaymentExpiry() {
     return addMinutes(new Date(), PENDING_BOOKING_WINDOW_MINUTES);
 }
 function getBaseUrl() {
-    return process.env.APP_BASE_URL ?? `http://localhost:${process.env.PORT ?? 8080}`;
+    const configuredBase = process.env.APP_BASE_URL ||
+        process.env.PUBLIC_BASE_URL ||
+        process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+    if (configuredBase) {
+        const normalized = configuredBase.startsWith("http") ? configuredBase : `https://${configuredBase}`;
+        return normalized.replace(/\/$/, "");
+    }
+    return `http://localhost:${process.env.PORT ?? 8080}`;
 }
 export function buildTicketQrCode(bookingCode, versionTag) {
     const base = `PHOTOSCAPE-TICKET:${bookingCode}`;
