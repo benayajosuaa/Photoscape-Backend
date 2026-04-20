@@ -59,6 +59,11 @@ export const NotificationController = {
     },
     stream(req, res) {
         try {
+            if (process.env.VERCEL) {
+                return res.status(501).json({
+                    message: "SSE stream tidak didukung di runtime serverless. Gunakan polling /api/notifications.",
+                });
+            }
             const userId = getAuthenticatedUserId(req);
             res.status(200);
             res.setHeader("Content-Type", "text/event-stream");
