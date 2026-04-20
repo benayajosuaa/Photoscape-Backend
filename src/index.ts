@@ -110,12 +110,34 @@ app.use((req: ExpressRequest, res: ExpressResponse, next) => {
     .split(",")
     .map(item => item.trim())
     .filter(Boolean);
-  const fallbackOrigins = ["http://localhost:3000"];
+  const fallbackOrigins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+  ];
   const vercelPreviewOrigin = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "";
   const allowedOrigins = new Set([...configuredOrigins, ...fallbackOrigins, vercelPreviewOrigin].filter(Boolean));
-  const resolvedOrigin = requestOrigin && allowedOrigins.has(requestOrigin)
+
+  const isAllowedOrigin = (() => {
+    if (!requestOrigin) return false;
+    if (allowedOrigins.has(requestOrigin)) return true;
+
+    try {
+      const parsed = new URL(requestOrigin);
+      const isLocalHost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+      const isHttpProtocol = parsed.protocol === "http:" || parsed.protocol === "https:";
+      return isLocalHost && isHttpProtocol;
+    } catch {
+      return false;
+    }
+  })();
+
+  const resolvedOrigin = isAllowedOrigin
     ? requestOrigin
-    : configuredOrigins[0] || fallbackOrigins[0] || "";
+    : !requestOrigin
+      ? configuredOrigins[0] || fallbackOrigins[0] || ""
+      : "";
 
   if (resolvedOrigin) {
     res.header("Access-Control-Allow-Origin", resolvedOrigin);
