@@ -346,6 +346,10 @@ export const BookingServices = {
         const nowInstant = new Date();
         const nowScheduleClock = getNowScheduleClock(nowInstant);
         const date = params.date ? parseDateOnly(params.date) : startOfDay(nowScheduleClock);
+        const requestedDayStart = startOfDay(date);
+        const todayStart = startOfDay(nowScheduleClock);
+        const isRequestedToday = requestedDayStart.getTime() === todayStart.getTime();
+        const isRequestedPastDay = requestedDayStart.getTime() < todayStart.getTime();
         const studioWhere = {
             isActive: true,
             locationId: params.locationId,
@@ -353,7 +357,7 @@ export const BookingServices = {
         };
         const scheduleWhere = {
             date: {
-                gte: startOfDay(date),
+                gte: requestedDayStart,
                 lte: endOfDay(date),
             },
             studio: studioWhere,
@@ -379,18 +383,23 @@ export const BookingServices = {
             throw new Error("Lokasi tidak ditemukan");
         if (packages.length === 0)
             throw new Error("Paket tidak ditemukan");
-        const schedules = await prisma.schedule.findMany({
-            where: scheduleWhere,
-            include: {
-                studio: true,
-                booking: {
-                    include: {
-                        payment: true,
+        const schedules = isRequestedPastDay
+            ? []
+            : await prisma.schedule.findMany({
+                where: {
+                    ...scheduleWhere,
+                    ...(isRequestedToday ? { startTime: { gte: nowScheduleClock } } : {}),
+                },
+                include: {
+                    studio: true,
+                    booking: {
+                        include: {
+                            payment: true,
+                        },
                     },
                 },
-            },
-            orderBy: [{ startTime: "asc" }, { studio: { name: "asc" } }],
-        });
+                orderBy: [{ startTime: "asc" }, { studio: { name: "asc" } }],
+            });
         const packageAvailabilities = packages.map(photoPackage => {
             const slots = schedules.map(schedule => mapScheduleToSlot(schedule, photoPackage.durationMinutes, { nowInstant, nowScheduleClock }));
             return {
@@ -412,9 +421,10 @@ export const BookingServices = {
             }
             return {
                 location,
-                date: startOfDay(date).toISOString(),
+                date: requestedDayStart.toISOString(),
                 package: selectedPackageAvailability.package,
                 studioType: params.studioType ?? null,
+                serverNow: nowScheduleClock.toISOString(),
                 studios,
                 slots: selectedPackageAvailability.slots,
                 availableSlots: selectedPackageAvailability.availableSlots,
@@ -422,8 +432,9 @@ export const BookingServices = {
         }
         return {
             location,
-            date: startOfDay(date).toISOString(),
+            date: requestedDayStart.toISOString(),
             studioType: params.studioType ?? null,
+            serverNow: nowScheduleClock.toISOString(),
             studios,
             packages: packageAvailabilities,
         };

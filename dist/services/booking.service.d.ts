@@ -68,6 +68,7 @@ export declare const BookingServices: {
             maxCapacity: number;
         };
         studioType: string | null;
+        serverNow: string;
         studios: {
             id: string;
             name: string;
@@ -104,6 +105,7 @@ export declare const BookingServices: {
         };
         date: string;
         studioType: string | null;
+        serverNow: string;
         studios: {
             id: string;
             name: string;
