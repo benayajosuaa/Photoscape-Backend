@@ -17,6 +17,7 @@ import {
   syncBookingPayments,
 } from "./payment.services.js";
 import { NotificationServices } from "./notification.service.js";
+import { getNowScheduleClock } from "../utils/business-time.js";
 
 type BookingMetaParams = {
   locationId?: string;
@@ -106,16 +107,21 @@ function formatMoney(value: number) {
   return Number(value.toFixed(2));
 }
 
-function mapScheduleToSlot(schedule: AvailabilitySchedule, packageDurationMinutes: number, now: Date) {
+function mapScheduleToSlot(
+  schedule: AvailabilitySchedule,
+  packageDurationMinutes: number,
+  context: { nowInstant: Date; nowScheduleClock: Date }
+) {
   const booking = schedule.booking;
-  const isPast = schedule.startTime <= now;
+  const isPast = schedule.startTime < context.nowScheduleClock;
   const hasLongEnoughDuration =
     schedule.endTime.getTime() - schedule.startTime.getTime() >= packageDurationMinutes * 60 * 1000;
 
   const bookingBlocksSlot = Boolean(
     booking &&
       ACTIVE_BOOKING_STATUSES.includes(booking.status) &&
-      (booking.status !== "pending" || addMinutes(booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > now)
+      (booking.status !== "pending" ||
+        addMinutes(booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > context.nowInstant)
   );
 
   let status: "available" | "unavailable" = "available";
@@ -475,7 +481,9 @@ export const BookingServices = {
       throw new Error("Jenis studio tidak valid");
     }
 
-    const date = params.date ? parseDateOnly(params.date) : startOfDay(new Date());
+    const nowInstant = new Date();
+    const nowScheduleClock = getNowScheduleClock(nowInstant);
+    const date = params.date ? parseDateOnly(params.date) : startOfDay(nowScheduleClock);
     const studioWhere: Prisma.StudioWhereInput = {
       isActive: true,
       locationId: params.locationId,
@@ -524,9 +532,10 @@ export const BookingServices = {
       orderBy: [{ startTime: "asc" }, { studio: { name: "asc" } }],
     });
 
-    const now = new Date();
     const packageAvailabilities = packages.map(photoPackage => {
-      const slots = schedules.map(schedule => mapScheduleToSlot(schedule, photoPackage.durationMinutes, now));
+      const slots = schedules.map(schedule =>
+        mapScheduleToSlot(schedule, photoPackage.durationMinutes, { nowInstant, nowScheduleClock })
+      );
 
       return {
         package: {
@@ -570,6 +579,9 @@ export const BookingServices = {
 
   async createBooking(userId: string, payload: CreateBookingPayload) {
     await syncBookingPayments();
+
+    const nowInstant = new Date();
+    const nowScheduleClock = getNowScheduleClock(nowInstant);
 
     const customerName = String(payload.customerName ?? "").trim();
     const customerPhone = String(payload.customerPhone ?? "").trim();
@@ -615,7 +627,7 @@ export const BookingServices = {
       if (schedule.studio.locationId !== locationId) throw new Error("Jadwal tidak sesuai dengan lokasi yang dipilih");
       if (schedule.studio.type !== studioType) throw new Error("Jadwal tidak sesuai dengan jenis studio yang dipilih");
       if (!schedule.studio.isActive) throw new Error("Studio sedang tidak aktif");
-      if (schedule.startTime <= new Date()) throw new Error("Jadwal yang dipilih sudah lewat");
+      if (schedule.startTime < nowScheduleClock) throw new Error("Jadwal yang dipilih sudah lewat");
       if (participantCount > photoPackage.maxCapacity) throw new Error("Jumlah peserta melebihi kapasitas paket");
 
       const slotDurationMinutes = (schedule.endTime.getTime() - schedule.startTime.getTime()) / (60 * 1000);
@@ -627,7 +639,7 @@ export const BookingServices = {
         schedule.booking &&
         ACTIVE_BOOKING_STATUSES.includes(schedule.booking.status) &&
         (schedule.booking.status !== "pending" ||
-          addMinutes(schedule.booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > new Date())
+          addMinutes(schedule.booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > nowInstant)
       ) {
         throw new Error("Slot sudah dipesan user lain");
       }
