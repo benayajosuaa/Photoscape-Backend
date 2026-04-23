@@ -36,32 +36,37 @@ function pruneExpired() {
   }
 }
 
+function issue(payload: RefreshPayload) {
+  const token = jwt.sign(payload, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRES_IN });
+  refreshStore.set(hashToken(token), decodeExp(token));
+  pruneExpired();
+  return token;
+}
+
+function verify(token: string) {
+  pruneExpired();
+  const key = hashToken(token);
+  const exists = refreshStore.get(key);
+  if (!exists || exists <= Date.now()) {
+    refreshStore.delete(key);
+    throw new Error("Refresh token tidak valid atau sudah expired");
+  }
+
+  return jwt.verify(token, REFRESH_SECRET) as RefreshPayload;
+}
+
+function revoke(token: string) {
+  refreshStore.delete(hashToken(token));
+}
+
+function rotate(token: string, payload: RefreshPayload) {
+  revoke(token);
+  return issue(payload);
+}
+
 export const RefreshTokenServices = {
-  issue(payload: RefreshPayload) {
-    const token = jwt.sign(payload, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRES_IN });
-    refreshStore.set(hashToken(token), decodeExp(token));
-    pruneExpired();
-    return token;
-  },
-
-  verify(token: string) {
-    pruneExpired();
-    const key = hashToken(token);
-    const exists = refreshStore.get(key);
-    if (!exists || exists <= Date.now()) {
-      refreshStore.delete(key);
-      throw new Error('Refresh token tidak valid atau sudah expired');
-    }
-
-    return jwt.verify(token, REFRESH_SECRET) as RefreshPayload;
-  },
-
-  revoke(token: string) {
-    refreshStore.delete(hashToken(token));
-  },
-
-  rotate(token: string, payload: RefreshPayload) {
-    this.revoke(token);
-    return this.issue(payload);
-  },
+  issue,
+  verify,
+  revoke,
+  rotate,
 };

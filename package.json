@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test --import ./ts-node-register.mjs test/*.test.ts",
     "postinstall": "prisma generate",
     "dev": "nodemon --watch src --ext ts --exec \"npm run build && node dist/index.js\"",
     "seed:booking": "node --import ./ts-node-register.mjs src/scripts/seed-booking.ts",
