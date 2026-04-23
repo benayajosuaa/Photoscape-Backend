@@ -13,6 +13,7 @@ import ownerAdminRoute from "./routes/owner-admin.route.js";
 import operationsReportRoute from "./routes/operations-report.route.js";
 import { seedPrivilegedUser } from "./services/auth.service.js";
 import { NotificationServices } from "./services/notification.service.js";
+import { ContactController } from "./controllers/contact.controller.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const isVercelRuntime = Boolean(process.env.VERCEL);
@@ -91,6 +92,13 @@ const authLimiter = rateLimit({
     legacyHeaders: false,
     message: { error: "Terlalu banyak request login. Coba lagi sebentar." },
 });
+const contactLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Terlalu banyak request contact. Coba lagi sebentar." },
+});
 app.use((req, res, next) => {
     const requestOrigin = req.header("origin") ?? "";
     const configuredOrigins = (process.env.FRONTEND_URL ?? "")
@@ -147,6 +155,7 @@ app.get("/", (req, res) => {
 app.get("/api/test", (req, res) => {
     res.json({ success: true, message: "API working properly" });
 });
+app.post("/api/contact-us", contactLimiter, ContactController.sendMessage);
 app.get("/api/internal/reminder-dispatch", async (req, res) => {
     const cronSecret = process.env.CRON_SECRET?.trim() ?? "";
     const authHeader = req.header("authorization") ?? "";

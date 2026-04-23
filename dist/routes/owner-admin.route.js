@@ -1,7 +1,19 @@
 import { Router } from 'express';
+import { rateLimit } from "express-rate-limit";
 import { OwnerAdminController } from '../controllers/owner-admin.controller.js';
+import { ContactController } from "../controllers/contact.controller.js";
 import { authenticateExpress, requireRoles } from '../middlewares/auth.middleware.js';
 const router = Router();
+const contactLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Terlalu banyak request contact. Coba lagi sebentar." },
+});
+// NOTE: router ini di-mount di `/api` (lihat `src/index.ts`), jadi endpoint publik harus
+// didefinisikan sebelum `authenticateExpress` supaya tidak memunculkan error "No token".
+router.post("/contact-us", contactLimiter, ContactController.sendMessage);
 router.use(authenticateExpress);
 router.get('/reports/dashboard', requireRoles('owner', 'manager', 'admin'), OwnerAdminController.getReportsDashboard);
 router.get('/reports/revenue', requireRoles('owner', 'manager', 'admin'), OwnerAdminController.getReportsRevenue);

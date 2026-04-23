@@ -3,6 +3,7 @@ import { prisma } from "../utils/prisma.js";
 import { BookingServices } from "./booking.service.js";
 import { buildPaymentExpiry, buildTicketQrCode } from "./payment.services.js";
 import { NotificationServices } from "./notification.service.js";
+import { getNowScheduleClock } from "../utils/business-time.js";
 const ACTIVE_BOOKING_STATUSES = ["pending", "confirmed", "completed"];
 const ADMIN_EDITABLE_BOOKING_STATUSES = ["pending", "confirmed"];
 const bookingAdminInclude = {
@@ -594,7 +595,7 @@ export const AdminBookingServices = {
                 throw new Error("Jadwal tujuan tidak ditemukan");
             if (!nextSchedule.studio.isActive)
                 throw new Error("Studio tujuan sedang tidak aktif");
-            if (nextSchedule.startTime <= new Date())
+            if (nextSchedule.startTime < getNowScheduleClock())
                 throw new Error("Jadwal tujuan sudah lewat");
             ensureActorCanAccessLocation(actor, nextSchedule.studio.locationId);
             if (booking.participantCount > booking.package.maxCapacity ||

@@ -3,6 +3,7 @@ import { sendEmail } from "../utils/mailer.js";
 const ACTIVE_BOOKING_STATUSES = ["pending", "confirmed", "completed"];
 import { PENDING_BOOKING_WINDOW_MINUTES, PAYMENT_METHODS, VA_AUTO_SUCCESS_SECONDS, buildPaymentExpiry, buildQrisPaymentPageUrl, confirmQrisPaymentFromPage, finalizePaidBooking, getPaymentInstructions, getQrisPaymentPage, isPaymentMethod, isVirtualAccountMethod, syncBookingPayments, } from "./payment.services.js";
 import { NotificationServices } from "./notification.service.js";
+import { getNowScheduleClock } from "../utils/business-time.js";
 function isStudioType(value) {
     return ["K1", "K2", "PHOTO_BOX", "SELF_PHOTO"].includes(value);
 }
@@ -25,13 +26,14 @@ function addMinutes(date, minutes) {
 function formatMoney(value) {
     return Number(value.toFixed(2));
 }
-function mapScheduleToSlot(schedule, packageDurationMinutes, now) {
+function mapScheduleToSlot(schedule, packageDurationMinutes, context) {
     const booking = schedule.booking;
-    const isPast = schedule.startTime <= now;
+    const isPast = schedule.startTime < context.nowScheduleClock;
     const hasLongEnoughDuration = schedule.endTime.getTime() - schedule.startTime.getTime() >= packageDurationMinutes * 60 * 1000;
     const bookingBlocksSlot = Boolean(booking &&
         ACTIVE_BOOKING_STATUSES.includes(booking.status) &&
-        (booking.status !== "pending" || addMinutes(booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > now));
+        (booking.status !== "pending" ||
+            addMinutes(booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > context.nowInstant));
     let status = "available";
     let reason = null;
     if (isPast) {
@@ -341,7 +343,9 @@ export const BookingServices = {
         if (params.studioType && !isStudioType(params.studioType)) {
             throw new Error("Jenis studio tidak valid");
         }
-        const date = params.date ? parseDateOnly(params.date) : startOfDay(new Date());
+        const nowInstant = new Date();
+        const nowScheduleClock = getNowScheduleClock(nowInstant);
+        const date = params.date ? parseDateOnly(params.date) : startOfDay(nowScheduleClock);
         const studioWhere = {
             isActive: true,
             locationId: params.locationId,
@@ -387,9 +391,8 @@ export const BookingServices = {
             },
             orderBy: [{ startTime: "asc" }, { studio: { name: "asc" } }],
         });
-        const now = new Date();
         const packageAvailabilities = packages.map(photoPackage => {
-            const slots = schedules.map(schedule => mapScheduleToSlot(schedule, photoPackage.durationMinutes, now));
+            const slots = schedules.map(schedule => mapScheduleToSlot(schedule, photoPackage.durationMinutes, { nowInstant, nowScheduleClock }));
             return {
                 package: {
                     id: photoPackage.id,
@@ -427,6 +430,8 @@ export const BookingServices = {
     },
     async createBooking(userId, payload) {
         await syncBookingPayments();
+        const nowInstant = new Date();
+        const nowScheduleClock = getNowScheduleClock(nowInstant);
         const customerName = String(payload.customerName ?? "").trim();
         const customerPhone = String(payload.customerPhone ?? "").trim();
         const locationId = String(payload.locationId ?? "").trim();
@@ -481,7 +486,7 @@ export const BookingServices = {
                 throw new Error("Jadwal tidak sesuai dengan jenis studio yang dipilih");
             if (!schedule.studio.isActive)
                 throw new Error("Studio sedang tidak aktif");
-            if (schedule.startTime <= new Date())
+            if (schedule.startTime < nowScheduleClock)
                 throw new Error("Jadwal yang dipilih sudah lewat");
             if (participantCount > photoPackage.maxCapacity)
                 throw new Error("Jumlah peserta melebihi kapasitas paket");
@@ -492,7 +497,7 @@ export const BookingServices = {
             if (schedule.booking &&
                 ACTIVE_BOOKING_STATUSES.includes(schedule.booking.status) &&
                 (schedule.booking.status !== "pending" ||
-                    addMinutes(schedule.booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > new Date())) {
+                    addMinutes(schedule.booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > nowInstant)) {
                 throw new Error("Slot sudah dipesan user lain");
             }
             const addOnIds = addOnsPayload.map(item => item.addOnId);
