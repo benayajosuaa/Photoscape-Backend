@@ -3,3 +3,11 @@ node_modules
 /src/generated/prisma
 
 .env
+
+
+
+/test
+/coverage
+*.test.ts
+*.spec.ts
+.nyc_output
