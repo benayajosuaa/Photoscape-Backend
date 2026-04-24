@@ -268,16 +268,13 @@ function ensureActorCanAccessLocation(actor, locationId) {
     }
 }
 function ensureSlotAvailable(schedule, currentBookingId) {
-    if (!schedule.booking) {
-        return;
-    }
-    if (schedule.booking.id === currentBookingId) {
-        return;
-    }
-    const blocksSlot = ACTIVE_BOOKING_STATUSES.includes(schedule.booking.status) &&
-        (schedule.booking.status !== "pending" ||
-            addMinutes(schedule.booking.createdAt, 15) > new Date());
-    if (blocksSlot) {
+    const now = new Date();
+    const blockingBooking = schedule.bookings
+        .filter(item => item.id !== currentBookingId)
+        .filter(item => ACTIVE_BOOKING_STATUSES.includes(item.status) &&
+        (item.status !== "pending" || addMinutes(item.createdAt, 15) > now))
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+    if (blockingBooking) {
         throw new Error("Slot sudah dipakai booking lain");
     }
 }
@@ -570,7 +567,13 @@ export const AdminBookingServices = {
                     where: { id: nextScheduleId },
                     include: {
                         studio: true,
-                        booking: true,
+                        bookings: {
+                            select: {
+                                id: true,
+                                createdAt: true,
+                                status: true,
+                            },
+                        },
                     },
                 });
             }
@@ -593,7 +596,13 @@ export const AdminBookingServices = {
                     },
                     include: {
                         studio: true,
-                        booking: true,
+                        bookings: {
+                            select: {
+                                id: true,
+                                createdAt: true,
+                                status: true,
+                            },
+                        },
                     },
                     orderBy: {
                         startTime: "asc",

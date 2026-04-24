@@ -154,7 +154,7 @@ model Schedule {
   endTime   DateTime
 
   studio  Studio   @relation(fields: [studioId], references: [id])
-  booking Booking?
+  bookings Booking[]
 
   @@unique([studioId, date, startTime])
 }
@@ -163,7 +163,7 @@ model Schedule {
 model Booking {
   id         String  @id @default(uuid())
   userId     String?
-  scheduleId String  @unique
+  scheduleId String
   packageId  String
   locationId String
 
@@ -196,6 +196,8 @@ model Booking {
   auditLogs AuditLog[]
   ticket    Ticket?
   notifications Notification[]
+
+  @@index([scheduleId])
 }
 
 // TIKET

@@ -81,6 +81,10 @@ function toPercent(value: number, total: number) {
   return Number(((value / total) * 100).toFixed(2));
 }
 
+function getLatestScheduleBooking<T extends { createdAt: Date; status: BookingStatus }>(bookings: T[]): T | null {
+  return bookings.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null;
+}
+
 function normalizeRoleForCreate(role: string): UserRole {
   const normalized = String(role || '').trim().toLowerCase();
   if (normalized === 'staff' || normalized === 'cashier') {
@@ -967,7 +971,7 @@ export const OwnerAdminServices = {
       },
       include: {
         studio: true,
-        booking: true,
+        bookings: true,
       },
     });
 
@@ -982,7 +986,8 @@ export const OwnerAdminServices = {
         utilizedSlots: 0,
       };
       row.totalSlots += 1;
-      if (schedule.booking && BOOKING_STATUS_VALUES.includes(schedule.booking.status)) {
+      const latestBooking = getLatestScheduleBooking(schedule.bookings);
+      if (latestBooking && BOOKING_STATUS_VALUES.includes(latestBooking.status)) {
         row.utilizedSlots += 1;
       }
       byStudio.set(schedule.studioId, row);
@@ -994,8 +999,8 @@ export const OwnerAdminServices = {
       summary: {
         totalStudios: byStudio.size,
         totalSlots: schedules.length,
-        utilizedSlots: schedules.filter((item) => item.booking).length,
-        studioUtilization: toPercent(schedules.filter((item) => item.booking).length, schedules.length),
+        utilizedSlots: schedules.filter((item) => item.bookings.length > 0).length,
+        studioUtilization: toPercent(schedules.filter((item) => item.bookings.length > 0).length, schedules.length),
       },
       studios: Array.from(byStudio.values())
         .map((item) => ({
@@ -1084,7 +1089,7 @@ export const OwnerAdminServices = {
         },
         include: {
           studio: true,
-          booking: true,
+          bookings: true,
         },
         orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
       }),
@@ -1126,6 +1131,14 @@ export const OwnerAdminServices = {
       startDate: start.toISOString(),
       endDate: end.toISOString(),
       schedules: schedules.map((item) => ({
+        ...(() => {
+          const latestBooking = getLatestScheduleBooking(item.bookings);
+          return {
+            booked: Boolean(latestBooking),
+            bookingId: latestBooking?.id ?? null,
+            bookingCode: latestBooking?.bookingCode ?? null,
+          };
+        })(),
         id: item.id,
         date: item.date.toISOString(),
         startTime: item.startTime.toISOString(),
@@ -1133,9 +1146,6 @@ export const OwnerAdminServices = {
         studioId: item.studioId,
         studioName: item.studio.name,
         studioType: item.studio.type,
-        booked: Boolean(item.booking),
-        bookingId: item.booking?.id ?? null,
-        bookingCode: item.booking?.bookingCode ?? null,
       })),
       blockedSlots: Array.from(activeBlocks.values()),
     };

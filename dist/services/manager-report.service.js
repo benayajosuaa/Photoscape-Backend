@@ -34,6 +34,9 @@ function toPercent(numerator, denominator) {
         return 0;
     return toNumber((numerator / denominator) * 100);
 }
+function getLatestScheduleBooking(bookings) {
+    return bookings.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null;
+}
 function parsePagination(filters) {
     const page = Math.max(1, Number(filters.page || 1) || 1);
     const limit = Math.min(100, Math.max(1, Number(filters.limit || 10) || 10));
@@ -298,8 +301,8 @@ export const ManagerReportServices = {
                         isActive: true,
                         ...(locationId ? { locationId } : {}),
                     },
-                    booking: {
-                        is: {
+                    bookings: {
+                        some: {
                             status: {
                                 in: UTILIZED_BOOKING_STATUSES,
                             },
@@ -404,7 +407,7 @@ export const ManagerReportServices = {
                         location: true,
                     },
                 },
-                booking: {
+                bookings: {
                     include: {
                         payment: true,
                     },
@@ -415,9 +418,10 @@ export const ManagerReportServices = {
         const studioMap = new Map();
         const trendMap = new Map();
         for (const schedule of schedules) {
+            const latestBooking = getLatestScheduleBooking(schedule.bookings);
             const key = schedule.studioId;
-            const isUtilized = !!(schedule.booking && UTILIZED_BOOKING_STATUSES.includes(schedule.booking.status));
-            const isCancelled = schedule.booking?.status === 'cancelled';
+            const isUtilized = !!(latestBooking && UTILIZED_BOOKING_STATUSES.includes(latestBooking.status));
+            const isCancelled = latestBooking?.status === 'cancelled';
             const durationHours = (schedule.endTime.getTime() - schedule.startTime.getTime()) / (60 * 60 * 1000);
             const current = studioMap.get(key) ?? {
                 studioId: schedule.studio.id,
@@ -437,8 +441,8 @@ export const ManagerReportServices = {
                 current.totalSessions += 1;
                 current.totalHours += durationHours;
             }
-            if (schedule.booking?.payment?.status === 'paid') {
-                current.totalRevenue += schedule.booking.payment.amount;
+            if (latestBooking?.payment?.status === 'paid') {
+                current.totalRevenue += latestBooking.payment.amount;
             }
             if (isCancelled) {
                 current.totalCancelled += 1;
@@ -464,8 +468,11 @@ export const ManagerReportServices = {
         }))
             .sort((a, b) => b.totalSessions - a.totalSessions);
         const totalSchedules = schedules.length;
-        const utilizedSchedules = schedules.filter((item) => item.booking && UTILIZED_BOOKING_STATUSES.includes(item.booking.status)).length;
-        const cancelledBookings = schedules.filter((item) => item.booking?.status === 'cancelled').length;
+        const utilizedSchedules = schedules.filter((item) => {
+            const latestBooking = getLatestScheduleBooking(item.bookings);
+            return Boolean(latestBooking && UTILIZED_BOOKING_STATUSES.includes(latestBooking.status));
+        }).length;
+        const cancelledBookings = schedules.filter((item) => getLatestScheduleBooking(item.bookings)?.status === 'cancelled').length;
         return {
             scope: {
                 role: actor.role,
@@ -847,8 +854,8 @@ export const ManagerReportServices = {
                         lte: end,
                     },
                     studio: buildStudioWhere(filters),
-                    booking: {
-                        is: {
+                    bookings: {
+                        some: {
                             status: {
                                 in: UTILIZED_BOOKING_STATUSES,
                             },

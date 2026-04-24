@@ -97,6 +97,10 @@ function toPercent(value: number) {
   return Number(value.toFixed(2));
 }
 
+function getLatestScheduleBooking<T extends { createdAt: Date; status: BookingStatus }>(bookings: T[]): T | null {
+  return bookings.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null;
+}
+
 function isOwner(actor: ReportActor) {
   return actor.role === "owner";
 }
@@ -396,8 +400,8 @@ export const OperationsReportServices = {
           ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}),
           ...(filters.studioId?.trim() ? { id: filters.studioId.trim() } : {}),
         },
-        booking: {
-          is: {
+        bookings: {
+          some: {
             status: {
               in: UTILIZED_BOOKING_STATUSES,
             },
@@ -508,8 +512,8 @@ export const OperationsReportServices = {
           },
           ...(filters.packageId?.trim()
             ? {
-                booking: {
-                  is: {
+                bookings: {
+                  some: {
                     packageId: filters.packageId.trim(),
                   },
                 },
@@ -518,7 +522,7 @@ export const OperationsReportServices = {
         },
         include: {
           studio: true,
-          booking: {
+          bookings: {
             include: {
               package: true,
             },
@@ -531,7 +535,10 @@ export const OperationsReportServices = {
     const byStudio = studios.map(studio => {
       const studioSchedules = schedules.filter(item => item.studioId === studio.id);
       const utilized = studioSchedules.filter(
-        item => item.booking && UTILIZED_BOOKING_STATUSES.includes(item.booking.status)
+        item => {
+          const latestBooking = getLatestScheduleBooking(item.bookings);
+          return Boolean(latestBooking && UTILIZED_BOOKING_STATUSES.includes(latestBooking.status));
+        }
       ).length;
 
       return {
@@ -558,7 +565,8 @@ export const OperationsReportServices = {
 
       entry.totalSchedules += 1;
 
-      if (schedule.booking && UTILIZED_BOOKING_STATUSES.includes(schedule.booking.status)) {
+      const latestBooking = getLatestScheduleBooking(schedule.bookings);
+      if (latestBooking && UTILIZED_BOOKING_STATUSES.includes(latestBooking.status)) {
         entry.utilizedSchedules += 1;
       }
 
@@ -581,7 +589,10 @@ export const OperationsReportServices = {
       summary: {
         totalStudios: studios.length,
         totalSchedules: schedules.length,
-        utilizedSchedules: schedules.filter(item => item.booking && UTILIZED_BOOKING_STATUSES.includes(item.booking.status)).length,
+        utilizedSchedules: schedules.filter(item => {
+          const latestBooking = getLatestScheduleBooking(item.bookings);
+          return Boolean(latestBooking && UTILIZED_BOOKING_STATUSES.includes(latestBooking.status));
+        }).length,
       },
       byStudio,
       trend: Array.from(trendMap.entries()).map(([periodLabel, values]) => ({

@@ -28,6 +28,13 @@ function parseDateOnly(value) {
 function addMinutes(date, minutes) {
     return new Date(date.getTime() + minutes * 60 * 1000);
 }
+function getBlockingBooking(bookings, nowInstant) {
+    return (bookings
+        .filter(booking => ACTIVE_BOOKING_STATUSES.includes(booking.status) &&
+        (booking.status !== "pending" ||
+            addMinutes(booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > nowInstant))
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null);
+}
 function formatMoney(value) {
     return Number(value.toFixed(2));
 }
@@ -88,7 +95,7 @@ async function ensurePhotoBoxSchedulesForDate(params) {
                 },
             },
             include: {
-                booking: {
+                bookings: {
                     select: { id: true },
                 },
             },
@@ -108,7 +115,7 @@ async function ensurePhotoBoxSchedulesForDate(params) {
                 });
                 continue;
             }
-            if (!existingSchedule.booking && existingSchedule.endTime.getTime() !== targetEndTime.getTime()) {
+            if (existingSchedule.bookings.length === 0 && existingSchedule.endTime.getTime() !== targetEndTime.getTime()) {
                 await prisma.schedule.update({
                     where: { id: existingSchedule.id },
                     data: {
@@ -117,7 +124,7 @@ async function ensurePhotoBoxSchedulesForDate(params) {
                 });
             }
         }
-        const staleSchedules = existing.filter(item => !item.booking && !targetStartsSet.has(item.startTime.getTime()));
+        const staleSchedules = existing.filter(item => item.bookings.length === 0 && !targetStartsSet.has(item.startTime.getTime()));
         if (staleSchedules.length > 0) {
             await prisma.schedule.deleteMany({
                 where: {
@@ -130,13 +137,10 @@ async function ensurePhotoBoxSchedulesForDate(params) {
     }
 }
 function mapScheduleToSlot(schedule, packageDurationMinutes, context) {
-    const booking = schedule.booking;
+    const booking = getBlockingBooking(schedule.bookings, context.nowInstant);
     const isPast = schedule.startTime < context.nowScheduleClock;
     const hasLongEnoughDuration = schedule.endTime.getTime() - schedule.startTime.getTime() >= packageDurationMinutes * 60 * 1000;
-    const bookingBlocksSlot = Boolean(booking &&
-        ACTIVE_BOOKING_STATUSES.includes(booking.status) &&
-        (booking.status !== "pending" ||
-            addMinutes(booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > context.nowInstant));
+    const bookingBlocksSlot = Boolean(booking);
     let status = "available";
     let reason = null;
     if (isPast) {
@@ -519,7 +523,7 @@ export const BookingServices = {
                 },
                 include: {
                     studio: true,
-                    booking: {
+                    bookings: {
                         include: {
                             payment: true,
                         },
@@ -602,7 +606,7 @@ export const BookingServices = {
                     where: { id: scheduleId },
                     include: {
                         studio: true,
-                        booking: {
+                        bookings: {
                             include: {
                                 payment: true,
                             },
@@ -634,10 +638,8 @@ export const BookingServices = {
             if (slotDurationMinutes < durationMinutes) {
                 throw new Error("Durasi slot tidak cukup untuk paket yang dipilih");
             }
-            if (schedule.booking &&
-                ACTIVE_BOOKING_STATUSES.includes(schedule.booking.status) &&
-                (schedule.booking.status !== "pending" ||
-                    addMinutes(schedule.booking.createdAt, PENDING_BOOKING_WINDOW_MINUTES) > nowInstant)) {
+            const blockingBooking = getBlockingBooking(schedule.bookings, nowInstant);
+            if (blockingBooking) {
                 throw new Error("Slot sudah dipesan user lain");
             }
             const addOnIds = addOnsPayload.map(item => item.addOnId);
