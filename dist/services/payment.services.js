@@ -1,5 +1,6 @@
 import { prisma } from "../utils/prisma.js";
 import { NotificationServices } from "./notification.service.js";
+import { getEffectivePackageDurationMinutes } from "../utils/package-duration.js";
 export const PENDING_BOOKING_WINDOW_MINUTES = 15;
 export const VA_AUTO_SUCCESS_SECONDS = 20;
 export const PAYMENT_METHODS = ["qris", "bca_va", "mandiri_va", "gopay", "ovo", "cash"];
@@ -93,6 +94,7 @@ export async function finalizePaidBooking(tx, paymentId, paidAt) {
         include: {
             booking: {
                 include: {
+                    package: true,
                     schedule: true,
                     ticket: true,
                 },
@@ -124,13 +126,17 @@ export async function finalizePaidBooking(tx, paymentId, paidAt) {
             status: "confirmed",
         },
     });
+    const ticketExpiry = addMinutes(payment.booking.schedule.startTime, getEffectivePackageDurationMinutes({
+        name: payment.booking.package.name,
+        durationMinutes: payment.booking.package.durationMinutes,
+    }));
     if (payment.booking.ticket) {
         await tx.ticket.update({
             where: { bookingId: payment.booking.id },
             data: {
                 qrCode: buildTicketQrCode(payment.booking.bookingCode, payment.booking.schedule.id),
                 status: "active",
-                expiredAt: payment.booking.schedule.endTime,
+                expiredAt: ticketExpiry,
             },
         });
     }
@@ -139,7 +145,7 @@ export async function finalizePaidBooking(tx, paymentId, paidAt) {
             data: {
                 bookingId: payment.booking.id,
                 qrCode: buildTicketQrCode(payment.booking.bookingCode, payment.booking.schedule.id),
-                expiredAt: payment.booking.schedule.endTime,
+                expiredAt: ticketExpiry,
             },
         });
     }

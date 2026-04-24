@@ -18,6 +18,8 @@ import {
 } from "./payment.services.js";
 import { NotificationServices } from "./notification.service.js";
 import { getNowScheduleClock } from "../utils/business-time.js";
+import { getEffectivePackageDurationMinutes } from "../utils/package-duration.js";
+import { PUBLIC_BOOKING_PACKAGES } from "../utils/public-booking-packages.js";
 
 type BookingMetaParams = {
   locationId?: string;
@@ -77,6 +79,10 @@ type AvailabilitySchedule = Prisma.ScheduleGetPayload<{
   };
 }>;
 
+const PHOTOBOX_SLOT_INTERVAL_MINUTES = 30;
+const PHOTOBOX_OPEN_HOUR = 9;
+const PHOTOBOX_CLOSE_HOUR = 18;
+
 function isStudioType(value: string): value is StudioType {
   return ["K1", "K2", "PHOTO_BOX", "SELF_PHOTO"].includes(value);
 }
@@ -105,6 +111,122 @@ function addMinutes(date: Date, minutes: number) {
 
 function formatMoney(value: number) {
   return Number(value.toFixed(2));
+}
+
+async function ensurePublicBookingPackages() {
+  const names = PUBLIC_BOOKING_PACKAGES.map(item => item.name);
+  const existing = await prisma.photoPackage.findMany({
+    where: { name: { in: names } },
+    select: { id: true, name: true },
+  });
+
+  const existingByName = new Map(existing.map(item => [item.name, item.id]));
+
+  await Promise.all(
+    PUBLIC_BOOKING_PACKAGES.map(async pkg => {
+      const existingId = existingByName.get(pkg.name);
+
+      if (existingId) {
+        await prisma.photoPackage.update({
+          where: { id: existingId },
+          data: {
+            price: pkg.price,
+            durationMinutes: pkg.durationMinutes,
+            maxCapacity: pkg.maxCapacity,
+          },
+        });
+        return;
+      }
+
+      await prisma.photoPackage.create({
+        data: pkg,
+      });
+    })
+  );
+}
+
+function buildPhotoBoxSlotStarts(day: Date) {
+  const starts: Date[] = [];
+  const dayStart = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), PHOTOBOX_OPEN_HOUR, 0, 0, 0);
+  const dayEnd = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), PHOTOBOX_CLOSE_HOUR, 0, 0, 0);
+
+  for (let timestamp = dayStart; timestamp < dayEnd; timestamp += PHOTOBOX_SLOT_INTERVAL_MINUTES * 60 * 1000) {
+    starts.push(new Date(timestamp));
+  }
+
+  return starts;
+}
+
+async function ensurePhotoBoxSchedulesForDate(params: { locationId: string; day: Date }) {
+  const studios = await prisma.studio.findMany({
+    where: {
+      isActive: true,
+      locationId: params.locationId,
+      type: "PHOTO_BOX",
+    },
+    select: { id: true },
+  });
+
+  if (studios.length === 0) return;
+
+  const targetStarts = buildPhotoBoxSlotStarts(params.day);
+  const targetStartsSet = new Set(targetStarts.map(item => item.getTime()));
+
+  for (const studio of studios) {
+    const existing = await prisma.schedule.findMany({
+      where: {
+        studioId: studio.id,
+        date: {
+          gte: startOfDay(params.day),
+          lte: endOfDay(params.day),
+        },
+      },
+      include: {
+        booking: {
+          select: { id: true },
+        },
+      },
+    });
+
+    const existingByStart = new Map(existing.map(item => [item.startTime.getTime(), item]));
+
+    for (const startTime of targetStarts) {
+      const existingSchedule = existingByStart.get(startTime.getTime());
+      const targetEndTime = addMinutes(startTime, PHOTOBOX_SLOT_INTERVAL_MINUTES);
+
+      if (!existingSchedule) {
+        await prisma.schedule.create({
+          data: {
+            studioId: studio.id,
+            date: startOfDay(params.day),
+            startTime,
+            endTime: targetEndTime,
+          },
+        });
+        continue;
+      }
+
+      if (!existingSchedule.booking && existingSchedule.endTime.getTime() !== targetEndTime.getTime()) {
+        await prisma.schedule.update({
+          where: { id: existingSchedule.id },
+          data: {
+            endTime: targetEndTime,
+          },
+        });
+      }
+    }
+
+    const staleSchedules = existing.filter(item => !item.booking && !targetStartsSet.has(item.startTime.getTime()));
+    if (staleSchedules.length > 0) {
+      await prisma.schedule.deleteMany({
+        where: {
+          id: {
+            in: staleSchedules.map(item => item.id),
+          },
+        },
+      });
+    }
+  }
 }
 
 function mapScheduleToSlot(
@@ -144,7 +266,7 @@ function mapScheduleToSlot(
     studioName: schedule.studio.name,
     studioType: schedule.studio.type,
     startTime: schedule.startTime.toISOString(),
-    endTime: schedule.endTime.toISOString(),
+    endTime: (hasLongEnoughDuration ? addMinutes(schedule.startTime, packageDurationMinutes) : schedule.endTime).toISOString(),
     status,
     reason,
   };
@@ -312,11 +434,16 @@ async function sendTicketInvoiceEmailForBooking(booking: Awaited<ReturnType<type
     throw new Error("Email user tidak ditemukan.");
   }
 
+  const durationMinutes = getEffectivePackageDurationMinutes({
+    name: booking.package.name,
+    durationMinutes: booking.package.durationMinutes,
+  });
+
   const html = buildTicketInvoiceEmailHtml({
     bookingCode: booking.bookingCode,
     customerName: booking.customerName,
     customerPhone: booking.customerPhone,
-    durationMinutes: booking.package.durationMinutes,
+    durationMinutes,
     locationName: booking.location.name,
     packageName: booking.package.name,
     qrCodeValue: booking.ticket.qrCode,
@@ -333,7 +460,7 @@ async function sendTicketInvoiceEmailForBooking(booking: Awaited<ReturnType<type
       `Nama: ${booking.customerName}`,
       `No. HP: ${booking.customerPhone}`,
       `Paket: ${booking.package.name}`,
-      `Durasi: ${booking.package.durationMinutes} menit`,
+      `Durasi: ${durationMinutes} menit`,
       `Tanggal: ${formatDateLabel(booking.schedule.date)}`,
       `Waktu: ${formatTimeLabel(booking.schedule.startTime)}`,
       `Lokasi: ${booking.location.name}`,
@@ -357,6 +484,10 @@ function calculateAddOnTotal(addOns: Array<{ quantity: number; addOn: { price: n
 
 function toSummaryResponse(booking: Awaited<ReturnType<typeof getBookingOwnedByUser>>) {
   const addOnTotal = calculateAddOnTotal(booking.addOns);
+  const durationMinutes = getEffectivePackageDurationMinutes({
+    name: booking.package.name,
+    durationMinutes: booking.package.durationMinutes,
+  });
 
   return {
     bookingId: booking.id,
@@ -374,7 +505,7 @@ function toSummaryResponse(booking: Awaited<ReturnType<typeof getBookingOwnedByU
       id: booking.package.id,
       name: booking.package.name,
       price: booking.package.price,
-      durationMinutes: booking.package.durationMinutes,
+      durationMinutes,
     },
     studio: {
       id: booking.schedule.studio.id,
@@ -385,7 +516,7 @@ function toSummaryResponse(booking: Awaited<ReturnType<typeof getBookingOwnedByU
       id: booking.schedule.id,
       date: booking.schedule.date.toISOString(),
       startTime: booking.schedule.startTime.toISOString(),
-      endTime: booking.schedule.endTime.toISOString(),
+      endTime: addMinutes(booking.schedule.startTime, durationMinutes).toISOString(),
     },
     participantCount: booking.participantCount,
     addOns: booking.addOns.map(item => ({
@@ -426,8 +557,13 @@ function toSummaryResponse(booking: Awaited<ReturnType<typeof getBookingOwnedByU
 export const BookingServices = {
   async getMeta(params: BookingMetaParams) {
     await syncBookingPayments();
+    await ensurePublicBookingPackages();
 
-    const wherePackage: Prisma.PhotoPackageWhereInput = {};
+    const wherePackage: Prisma.PhotoPackageWhereInput = {
+      name: {
+        in: PUBLIC_BOOKING_PACKAGES.map(item => item.name),
+      },
+    };
     const whereStudio: Prisma.StudioWhereInput = {
       isActive: true,
     };
@@ -465,7 +601,10 @@ export const BookingServices = {
       locations,
       studioTypes: ["K1", "K2", "PHOTO_BOX", "SELF_PHOTO"],
       studios,
-      packages,
+      packages: packages.map(item => ({
+        ...item,
+        durationMinutes: getEffectivePackageDurationMinutes(item),
+      })),
       addOns,
       paymentMethods: PAYMENT_METHODS,
       bookingWindowMinutes: PENDING_BOOKING_WINDOW_MINUTES,
@@ -474,6 +613,7 @@ export const BookingServices = {
 
   async getAvailability(params: AvailabilityParams) {
     await syncBookingPayments();
+    await ensurePublicBookingPackages();
 
     if (!params.locationId) throw new Error("locationId wajib diisi");
 
@@ -488,6 +628,13 @@ export const BookingServices = {
     const todayStart = startOfDay(nowScheduleClock);
     const isRequestedToday = requestedDayStart.getTime() === todayStart.getTime();
     const isRequestedPastDay = requestedDayStart.getTime() < todayStart.getTime();
+
+    if (params.studioType === "PHOTO_BOX") {
+      await ensurePhotoBoxSchedulesForDate({
+        locationId: params.locationId,
+        day: requestedDayStart,
+      });
+    }
 
     const studioWhere: Prisma.StudioWhereInput = {
       isActive: true,
@@ -506,10 +653,11 @@ export const BookingServices = {
     const [packages, location, studios] = await Promise.all([
       params.packageId
         ? prisma.photoPackage.findMany({
-            where: { id: params.packageId },
+            where: { id: params.packageId, name: { in: PUBLIC_BOOKING_PACKAGES.map(item => item.name) } },
             orderBy: [{ durationMinutes: "asc" }, { price: "asc" }],
           })
         : prisma.photoPackage.findMany({
+            where: { name: { in: PUBLIC_BOOKING_PACKAGES.map(item => item.name) } },
             orderBy: [{ durationMinutes: "asc" }, { price: "asc" }],
           }),
       prisma.location.findUnique({
@@ -543,15 +691,16 @@ export const BookingServices = {
         });
 
     const packageAvailabilities = packages.map(photoPackage => {
+      const durationMinutes = getEffectivePackageDurationMinutes(photoPackage);
       const slots = schedules.map(schedule =>
-        mapScheduleToSlot(schedule, photoPackage.durationMinutes, { nowInstant, nowScheduleClock })
+        mapScheduleToSlot(schedule, durationMinutes, { nowInstant, nowScheduleClock })
       );
 
       return {
         package: {
           id: photoPackage.id,
           name: photoPackage.name,
-          durationMinutes: photoPackage.durationMinutes,
+          durationMinutes,
           price: photoPackage.price,
           maxCapacity: photoPackage.maxCapacity,
         },
@@ -642,8 +791,9 @@ export const BookingServices = {
       if (schedule.startTime < nowScheduleClock) throw new Error("Jadwal yang dipilih sudah lewat");
       if (participantCount > photoPackage.maxCapacity) throw new Error("Jumlah peserta melebihi kapasitas paket");
 
+      const durationMinutes = getEffectivePackageDurationMinutes(photoPackage);
       const slotDurationMinutes = (schedule.endTime.getTime() - schedule.startTime.getTime()) / (60 * 1000);
-      if (slotDurationMinutes < photoPackage.durationMinutes) {
+      if (slotDurationMinutes < durationMinutes) {
         throw new Error("Durasi slot tidak cukup untuk paket yang dipilih");
       }
 
@@ -744,7 +894,7 @@ export const BookingServices = {
           studioType: booking.schedule.studio.type,
           scheduleDate: booking.schedule.date.toISOString(),
           startTime: booking.schedule.startTime.toISOString(),
-          endTime: booking.schedule.endTime.toISOString(),
+          endTime: addMinutes(booking.schedule.startTime, durationMinutes).toISOString(),
           participantCount: booking.participantCount,
           addOns: booking.addOns.map(item => ({
             name: item.addOn.name,
@@ -969,6 +1119,11 @@ export const BookingServices = {
       throw new Error("Tiket belum tersedia. Selesaikan pembayaran terlebih dahulu.");
     }
 
+    const durationMinutes = getEffectivePackageDurationMinutes({
+      name: booking.package.name,
+      durationMinutes: booking.package.durationMinutes,
+    });
+
     return {
       bookingId: booking.id,
       bookingCode: booking.bookingCode,
@@ -979,13 +1134,13 @@ export const BookingServices = {
       },
       package: {
         name: booking.package.name,
-        durationMinutes: booking.package.durationMinutes,
+        durationMinutes,
       },
       location: booking.location.name,
       schedule: {
         date: booking.schedule.date.toISOString(),
         startTime: booking.schedule.startTime.toISOString(),
-        endTime: booking.schedule.endTime.toISOString(),
+        endTime: addMinutes(booking.schedule.startTime, durationMinutes).toISOString(),
         studioName: booking.schedule.studio.name,
         studioType: booking.schedule.studio.type,
       },
@@ -1027,13 +1182,19 @@ export const BookingServices = {
       },
     });
 
-    const history = bookings.map(item => ({
+    const history = bookings.map(item => {
+      const durationMinutes = getEffectivePackageDurationMinutes({
+        name: item.package.name,
+        durationMinutes: item.package.durationMinutes,
+      });
+
+      return {
       bookingCode: item.bookingCode,
       bookingId: item.id,
       createdAt: item.createdAt.toISOString(),
       location: item.location.name,
       package: {
-        durationMinutes: item.package.durationMinutes,
+        durationMinutes,
         name: item.package.name,
       },
       payment: item.payment
@@ -1050,7 +1211,7 @@ export const BookingServices = {
       },
       schedule: {
         date: item.schedule.date.toISOString(),
-        endTime: item.schedule.endTime.toISOString(),
+        endTime: addMinutes(item.schedule.startTime, durationMinutes).toISOString(),
         startTime: item.schedule.startTime.toISOString(),
         studioName: item.schedule.studio.name,
       },
@@ -1062,7 +1223,8 @@ export const BookingServices = {
             status: item.ticket.status,
           }
         : null,
-    }));
+    };
+    });
 
     const paidItems = history.filter(item => item.payment?.status === "paid");
 

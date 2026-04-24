@@ -1,4 +1,8 @@
 import { prisma } from "../utils/prisma.js";
+import { getEffectivePackageDurationMinutes } from "../utils/package-duration.js";
+function addMinutes(date, minutes) {
+    return new Date(date.getTime() + minutes * 60 * 1000);
+}
 const UTILIZED_BOOKING_STATUSES = ["pending", "confirmed", "completed"];
 const PAYMENT_METHOD_VALUES = ["qris", "bca_va", "mandiri_va", "gopay", "ovo", "cash"];
 const PAYMENT_STATUS_VALUES = ["pending", "paid", "failed", "expired"];
@@ -91,6 +95,10 @@ function buildPeriodLabel(date, groupBy) {
     return date.toISOString().slice(0, 10);
 }
 function serializeBookingRecord(booking) {
+    const durationMinutes = getEffectivePackageDurationMinutes({
+        name: booking.package.name,
+        durationMinutes: booking.package.durationMinutes,
+    });
     return {
         bookingCode: booking.bookingCode,
         bookingId: booking.id,
@@ -106,7 +114,7 @@ function serializeBookingRecord(booking) {
             name: booking.location.name,
         },
         package: {
-            durationMinutes: booking.package.durationMinutes,
+            durationMinutes,
             id: booking.package.id,
             name: booking.package.name,
             price: booking.package.price,
@@ -123,7 +131,7 @@ function serializeBookingRecord(booking) {
             : null,
         schedule: {
             date: booking.schedule.date.toISOString(),
-            endTime: booking.schedule.endTime.toISOString(),
+            endTime: addMinutes(booking.schedule.startTime, durationMinutes).toISOString(),
             startTime: booking.schedule.startTime.toISOString(),
             studio: {
                 id: booking.schedule.studio.id,

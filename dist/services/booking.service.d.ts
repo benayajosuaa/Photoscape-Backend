@@ -40,10 +40,10 @@ export declare const BookingServices: {
             isActive: boolean;
         }[];
         packages: {
+            durationMinutes: number;
             id: string;
             name: string;
             price: number;
-            durationMinutes: number;
             maxCapacity: number;
         }[];
         addOns: {

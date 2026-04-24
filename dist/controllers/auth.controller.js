@@ -2,7 +2,7 @@ import { extractBearerToken } from '../middlewares/auth.middleware.js';
 import { assignUserRole, completeRegistration, findUserByEmail, findUserById, hasPendingRegistration, isValidUserRole, loginUser, startRegistration, } from '../services/auth.service.js';
 import { AuditLogServices } from '../services/audit-log.service.js';
 import { RefreshTokenServices } from '../services/refresh-token.service.js';
-import { generateOTP, verifyOTP } from '../services/otp.service.js';
+import { generateOTP, resendOTP, verifyOTP } from '../services/otp.service.js';
 import { generateToken, getTokenExpiration, revokeToken, SESSION_DURATION_HOURS } from '../utils/jwt.js';
 import { sendOTPEmail } from '../utils/mailer.js';
 import { validateEmail } from '../utils/validator.js';
@@ -189,7 +189,7 @@ async function handleSendOtp(email) {
         };
     }
     try {
-        const otp = generateOTP(normalizedEmail);
+        const otp = resendOTP(normalizedEmail);
         await sendOTPEmail(normalizedEmail, otp);
         return {
             body: { message: "OTP dikirim ulang. Silakan cek email anda." },
@@ -199,7 +199,7 @@ async function handleSendOtp(email) {
     catch (err) {
         return {
             body: { error: err?.message ?? "Gagal mengirim OTP" },
-            status: 500,
+            status: err?.message?.includes("OTP masih aktif") ? 429 : 500,
         };
     }
 }

@@ -27,26 +27,27 @@ const STUDIO_SEEDS = [
     { locationName: "Medan", name: "Self Photo 2 Medan", type: "SELF_PHOTO", capacity: 10 },
 ];
 const PACKAGE_SEEDS = [
-    { name: "Family Lite", price: 220000, durationMinutes: 60, maxCapacity: 4 },
-    { name: "Family Deluxe", price: 400000, durationMinutes: 60, maxCapacity: 6 },
-    { name: "Family Premium", price: 630000, durationMinutes: 90, maxCapacity: 8 },
-    { name: "Photo Box Express", price: 120000, durationMinutes: 30, maxCapacity: 3 },
-    { name: "Self Photo Regular", price: 180000, durationMinutes: 45, maxCapacity: 4 },
+    { name: "Family Lite", price: 220000, durationMinutes: 50, maxCapacity: 5 },
+    { name: "Family Deluxe", price: 400000, durationMinutes: 50, maxCapacity: 8 },
+    { name: "Family Premium", price: 630000, durationMinutes: 50, maxCapacity: 10 },
+    { name: "Group Lite", price: 120000, durationMinutes: 50, maxCapacity: 6 },
+    { name: "Group Deluxe", price: 200000, durationMinutes: 50, maxCapacity: 10 },
+    { name: "Photo Box Moments", price: 40000, durationMinutes: 25, maxCapacity: 4 },
 ];
 const ADD_ON_SEEDS = [
     { name: "Tambah Orang", price: 50000 },
     { name: "Cetak Foto 8R", price: 50000 },
 ];
 const DAILY_TIME_SLOTS = [
-    { startHour: 9, durationMinutes: 60 },
-    { startHour: 10, durationMinutes: 60 },
-    { startHour: 11, durationMinutes: 60 },
-    { startHour: 12, durationMinutes: 60 },
-    { startHour: 13, durationMinutes: 60 },
-    { startHour: 14, durationMinutes: 60 },
-    { startHour: 15, durationMinutes: 60 },
-    { startHour: 16, durationMinutes: 60 },
-    { startHour: 17, durationMinutes: 60 },
+    { startHour: 9, durationMinutes: 50 },
+    { startHour: 10, durationMinutes: 50 },
+    { startHour: 11, durationMinutes: 50 },
+    { startHour: 12, durationMinutes: 50 },
+    { startHour: 13, durationMinutes: 50 },
+    { startHour: 14, durationMinutes: 50 },
+    { startHour: 15, durationMinutes: 50 },
+    { startHour: 16, durationMinutes: 50 },
+    { startHour: 17, durationMinutes: 50 },
 ];
 const SCHEDULE_SEED_DAYS_AHEAD = Number(process.env.SCHEDULE_SEED_DAYS_AHEAD ?? 30);
 const SCHEDULE_INCLUDE_TODAY = process.env.SCHEDULE_INCLUDE_TODAY !== "false";

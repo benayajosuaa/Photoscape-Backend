@@ -1,5 +1,10 @@
 import type { BookingStatus, PaymentMethod, PaymentStatus, Prisma } from "@prisma/client";
 import { prisma } from "../utils/prisma.js";
+import { getEffectivePackageDurationMinutes } from "../utils/package-duration.js";
+
+function addMinutes(date: Date, minutes: number) {
+  return new Date(date.getTime() + minutes * 60 * 1000);
+}
 
 type ReportActor = {
   locationId?: string | null;
@@ -157,6 +162,11 @@ function buildPeriodLabel(date: Date, groupBy: "daily" | "weekly" | "monthly") {
 }
 
 function serializeBookingRecord(booking: ReportBookingRecord) {
+  const durationMinutes = getEffectivePackageDurationMinutes({
+    name: booking.package.name,
+    durationMinutes: booking.package.durationMinutes,
+  });
+
   return {
     bookingCode: booking.bookingCode,
     bookingId: booking.id,
@@ -172,7 +182,7 @@ function serializeBookingRecord(booking: ReportBookingRecord) {
       name: booking.location.name,
     },
     package: {
-      durationMinutes: booking.package.durationMinutes,
+      durationMinutes,
       id: booking.package.id,
       name: booking.package.name,
       price: booking.package.price,
@@ -189,7 +199,7 @@ function serializeBookingRecord(booking: ReportBookingRecord) {
       : null,
     schedule: {
       date: booking.schedule.date.toISOString(),
-      endTime: booking.schedule.endTime.toISOString(),
+      endTime: addMinutes(booking.schedule.startTime, durationMinutes).toISOString(),
       startTime: booking.schedule.startTime.toISOString(),
       studio: {
         id: booking.schedule.studio.id,

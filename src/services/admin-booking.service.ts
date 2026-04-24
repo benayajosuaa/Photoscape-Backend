@@ -5,6 +5,7 @@ import { BookingServices } from "./booking.service.js";
 import { buildPaymentExpiry, buildTicketQrCode } from "./payment.services.js";
 import { NotificationServices } from "./notification.service.js";
 import { getNowScheduleClock } from "../utils/business-time.js";
+import { getEffectivePackageDurationMinutes } from "../utils/package-duration.js";
 
 const ACTIVE_BOOKING_STATUSES: BookingStatus[] = ["pending", "confirmed", "completed"];
 const ADMIN_EDITABLE_BOOKING_STATUSES: BookingStatus[] = ["pending", "confirmed"];
@@ -146,6 +147,10 @@ function getActorLabel(actor: AdminActor) {
 
 function serializeBookingForAdmin(booking: AdminBookingRecord) {
   const addOnTotal = booking.addOns.reduce((total, item) => total + item.addOn.price * item.quantity, 0);
+  const durationMinutes = getEffectivePackageDurationMinutes({
+    name: booking.package.name,
+    durationMinutes: booking.package.durationMinutes,
+  });
 
   return {
     bookingId: booking.id,
@@ -187,7 +192,7 @@ function serializeBookingForAdmin(booking: AdminBookingRecord) {
       id: booking.package.id,
       name: booking.package.name,
       price: booking.package.price,
-      durationMinutes: booking.package.durationMinutes,
+      durationMinutes,
       maxCapacity: booking.package.maxCapacity,
     },
     studio: {
@@ -200,7 +205,7 @@ function serializeBookingForAdmin(booking: AdminBookingRecord) {
       id: booking.schedule.id,
       date: booking.schedule.date.toISOString(),
       startTime: booking.schedule.startTime.toISOString(),
-      endTime: booking.schedule.endTime.toISOString(),
+      endTime: addMinutes(booking.schedule.startTime, durationMinutes).toISOString(),
     },
     participantCount: booking.participantCount,
     pricing: {
@@ -612,7 +617,11 @@ export const AdminBookingServices = {
 
       const slotDurationMinutes =
         (booking.schedule.endTime.getTime() - booking.schedule.startTime.getTime()) / (60 * 1000);
-      if (slotDurationMinutes < nextPackage.durationMinutes) {
+      const nextPackageDurationMinutes = getEffectivePackageDurationMinutes({
+        name: nextPackage.name,
+        durationMinutes: nextPackage.durationMinutes,
+      });
+      if (slotDurationMinutes < nextPackageDurationMinutes) {
         throw new Error("Durasi jadwal saat ini tidak cukup untuk paket yang dipilih");
       }
 
@@ -757,8 +766,12 @@ export const AdminBookingServices = {
         throw new Error("Jumlah peserta tidak muat pada studio tujuan");
       }
 
+      const bookingPackageDurationMinutes = getEffectivePackageDurationMinutes({
+        name: booking.package.name,
+        durationMinutes: booking.package.durationMinutes,
+      });
       const slotDurationMinutes = (nextSchedule.endTime.getTime() - nextSchedule.startTime.getTime()) / (60 * 1000);
-      if (slotDurationMinutes < booking.package.durationMinutes) {
+      if (slotDurationMinutes < bookingPackageDurationMinutes) {
         throw new Error("Durasi slot tujuan tidak cukup untuk paket ini");
       }
 
@@ -779,7 +792,7 @@ export const AdminBookingServices = {
           where: { bookingId: booking.id },
           data: {
             qrCode: buildTicketQrCode(booking.bookingCode, nextSchedule.id),
-            expiredAt: nextSchedule.endTime,
+            expiredAt: addMinutes(nextSchedule.startTime, bookingPackageDurationMinutes),
           },
         });
       }
