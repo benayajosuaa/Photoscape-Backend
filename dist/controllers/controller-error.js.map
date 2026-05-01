@@ -1,0 +1,1 @@
+{"version":3,"file":"controller-error.js","sourceRoot":"","sources":["../../src/controllers/controller-error.ts"],"names":[],"mappings":"AAAA,MAAM,UAAU,kBAAkB,CAAC,KAAc;IAC/C,IAAI,OAAO,CAAC,GAAG,CAAC,QAAQ,KAAK,MAAM,EAAE,CAAC;QACpC,OAAO;IACT,CAAC;IAED,OAAO,CAAC,KAAK,CAAC,KAAK,CAAC,CAAC;AACvB,CAAC"}

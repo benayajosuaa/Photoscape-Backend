@@ -1,4 +1,5 @@
 import { AdminBookingServices } from "../services/admin-booking.service.js";
+import { logControllerError } from "./controller-error.js";
 function getSingleValue(value) {
     return Array.isArray(value) ? value[0] : value;
 }
@@ -14,7 +15,7 @@ function getAuthenticatedActor(req) {
     };
 }
 function sendError(res, error, fallbackMessage) {
-    console.error(error);
+    logControllerError(error);
     const message = error?.message ?? fallbackMessage;
     const status = message === "Booking tidak ditemukan" || message === "Jadwal tujuan tidak ditemukan" ? 404 : 400;
     return res.status(status).json({ message });

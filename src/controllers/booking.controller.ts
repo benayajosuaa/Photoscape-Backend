@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { BookingServices } from "../services/booking.service.js";
+import { logControllerError } from "./controller-error.js";
 
 function getSingleValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -29,7 +30,7 @@ export const BookingController = {
         data,
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       return res.status(400).json({
         message: error.message ?? "failed to load booking meta",
       });
@@ -50,7 +51,7 @@ export const BookingController = {
         data,
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       return res.status(400).json({
         message: error.message ?? "failed to load availability",
       });
@@ -67,7 +68,7 @@ export const BookingController = {
         data,
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       return res.status(400).json({
         message: error.message ?? "failed to create booking",
       });
@@ -85,7 +86,7 @@ export const BookingController = {
         data,
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       const status = error.message === "Booking tidak ditemukan" ? 404 : 400;
 
       return res.status(status).json({
@@ -104,7 +105,7 @@ export const BookingController = {
         data,
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       return res.status(400).json({
         message: error.message ?? "failed to load booking history",
       });
@@ -122,7 +123,7 @@ export const BookingController = {
         data,
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       return res.status(400).json({
         message: error.message ?? "failed to create payment",
       });
@@ -137,7 +138,7 @@ export const BookingController = {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       return res.status(200).send(html);
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       return res.status(400).send(`<h1>${error.message ?? "QRIS page error"}</h1>`);
     }
   },
@@ -150,7 +151,7 @@ export const BookingController = {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       return res.status(200).send(html);
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       return res.status(400).send(`<h1>${error.message ?? "QRIS confirmation error"}</h1>`);
     }
   },
@@ -166,7 +167,7 @@ export const BookingController = {
         data,
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       return res.status(400).json({
         message: error.message ?? "failed to confirm payment",
       });
@@ -184,7 +185,7 @@ export const BookingController = {
         data,
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       const status = error.message === "Booking tidak ditemukan" ? 404 : 400;
 
       return res.status(status).json({
@@ -204,7 +205,7 @@ export const BookingController = {
         data,
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       const status = error.message === "Booking tidak ditemukan" ? 404 : 400;
 
       return res.status(status).json({
@@ -224,7 +225,7 @@ export const BookingController = {
         data,
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       return res.status(400).json({
         message: error.message ?? "failed to cancel booking",
       });

@@ -1,4 +1,5 @@
 import { NotificationServices } from "../services/notification.service.js";
+import { logControllerError } from "./controller-error.js";
 function getAuthenticatedUserId(req) {
     if (!req.user?.userId) {
         throw new Error("Unauthorized");
@@ -17,7 +18,7 @@ export const NotificationController = {
             });
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             return res.status(400).json({
                 message: error.message ?? "failed to load notifications",
             });
@@ -36,7 +37,7 @@ export const NotificationController = {
             });
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             return res.status(400).json({
                 message: error.message ?? "failed to update notification",
             });
@@ -51,7 +52,7 @@ export const NotificationController = {
             });
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             return res.status(400).json({
                 message: error.message ?? "failed to update notifications",
             });
@@ -73,7 +74,7 @@ export const NotificationController = {
             NotificationServices.subscribe(userId, res);
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             res.status(401).json({
                 message: error.message ?? "failed to open notification stream",
             });

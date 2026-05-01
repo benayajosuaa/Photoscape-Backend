@@ -5,7 +5,6 @@ const ACTIVE_BOOKING_STATUSES: BookingStatus[] = ["pending", "confirmed", "compl
 import {
   PENDING_BOOKING_WINDOW_MINUTES,
   PAYMENT_METHODS,
-  VA_AUTO_SUCCESS_SECONDS,
   buildPaymentExpiry,
   buildQrisPaymentPageUrl,
   confirmQrisPaymentFromPage,
@@ -13,7 +12,9 @@ import {
   getPaymentInstructions,
   getQrisPaymentPage,
   isPaymentMethod,
-  isVirtualAccountMethod,
+  isSimulatedAutoSuccessMethod,
+  scheduleSimulatedPaymentSuccess,
+  SIMULATED_PAYMENT_AUTO_SUCCESS_SECONDS,
   syncBookingPayments,
 } from "./payment.services.js";
 import { NotificationServices } from "./notification.service.js";
@@ -984,9 +985,11 @@ export const BookingServices = {
         method: payment.method,
         status: payment.status,
         expiredAt: payment.expiredAt?.toISOString() ?? null,
-        autoSuccessAfterSeconds: isVirtualAccountMethod(payment.method) ? VA_AUTO_SUCCESS_SECONDS : null,
-        autoSuccessAt: isVirtualAccountMethod(payment.method)
-          ? new Date(payment.createdAt.getTime() + VA_AUTO_SUCCESS_SECONDS * 1000).toISOString()
+        autoSuccessAfterSeconds: isSimulatedAutoSuccessMethod(payment.method)
+          ? SIMULATED_PAYMENT_AUTO_SUCCESS_SECONDS
+          : null,
+        autoSuccessAt: isSimulatedAutoSuccessMethod(payment.method)
+          ? new Date(payment.createdAt.getTime() + SIMULATED_PAYMENT_AUTO_SUCCESS_SECONDS * 1000).toISOString()
           : null,
         gatewayReference: payment.gatewayReference,
         paymentPageUrl: payment.method === "qris" ? buildQrisPaymentPageUrl(payment.id) : null,
@@ -995,6 +998,10 @@ export const BookingServices = {
     });
 
     await NotificationServices.notifyPaymentPending(result.bookingId);
+
+    if (isSimulatedAutoSuccessMethod(result.method)) {
+      scheduleSimulatedPaymentSuccess(result.paymentId);
+    }
 
     return result;
   },

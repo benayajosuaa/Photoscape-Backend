@@ -1,4 +1,5 @@
 import { OwnerAdminServices } from '../services/owner-admin.service.js';
+import { logControllerError } from './controller-error.js';
 function single(value) {
     return Array.isArray(value) ? value[0] : value;
 }
@@ -22,7 +23,7 @@ function commonQuery(req) {
     }, {});
 }
 function sendError(res, error, fallback) {
-    console.error(error);
+    logControllerError(error);
     const message = error?.message ?? fallback;
     const status = message.includes('tidak ditemukan') ? 404 :
         message.includes('Unauthorized') ? 401 :

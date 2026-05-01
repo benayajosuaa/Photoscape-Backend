@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { NotificationServices } from "../services/notification.service.js";
+import { logControllerError } from "./controller-error.js";
 
 function getAuthenticatedUserId(req: Request) {
   if (!req.user?.userId) {
@@ -21,7 +22,7 @@ export const NotificationController = {
         data,
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       return res.status(400).json({
         message: error.message ?? "failed to load notifications",
       });
@@ -43,7 +44,7 @@ export const NotificationController = {
         message: "notification marked as read",
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       return res.status(400).json({
         message: error.message ?? "failed to update notification",
       });
@@ -59,7 +60,7 @@ export const NotificationController = {
         message: "all notifications marked as read",
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       return res.status(400).json({
         message: error.message ?? "failed to update notifications",
       });
@@ -84,7 +85,7 @@ export const NotificationController = {
 
       NotificationServices.subscribe(userId, res);
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       res.status(401).json({
         message: error.message ?? "failed to open notification stream",
       });

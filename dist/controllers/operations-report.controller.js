@@ -1,4 +1,5 @@
 import { OperationsReportServices } from "../services/operations-report.service.js";
+import { logControllerError } from "./controller-error.js";
 function getSingleValue(value) {
     return Array.isArray(value) ? value[0] : value;
 }
@@ -27,7 +28,7 @@ function getCommonFilters(req) {
     };
 }
 function sendError(res, error, fallbackMessage) {
-    console.error(error);
+    logControllerError(error);
     return res.status(400).json({
         message: error?.message ?? fallbackMessage,
     });

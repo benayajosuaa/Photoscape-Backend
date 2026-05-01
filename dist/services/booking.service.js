@@ -1,7 +1,7 @@
 import { prisma } from "../utils/prisma.js";
 import { sendEmail } from "../utils/mailer.js";
 const ACTIVE_BOOKING_STATUSES = ["pending", "confirmed", "completed"];
-import { PENDING_BOOKING_WINDOW_MINUTES, PAYMENT_METHODS, VA_AUTO_SUCCESS_SECONDS, buildPaymentExpiry, buildQrisPaymentPageUrl, confirmQrisPaymentFromPage, finalizePaidBooking, getPaymentInstructions, getQrisPaymentPage, isPaymentMethod, isVirtualAccountMethod, syncBookingPayments, } from "./payment.services.js";
+import { PENDING_BOOKING_WINDOW_MINUTES, PAYMENT_METHODS, buildPaymentExpiry, buildQrisPaymentPageUrl, confirmQrisPaymentFromPage, finalizePaidBooking, getPaymentInstructions, getQrisPaymentPage, isPaymentMethod, isSimulatedAutoSuccessMethod, scheduleSimulatedPaymentSuccess, SIMULATED_PAYMENT_AUTO_SUCCESS_SECONDS, syncBookingPayments, } from "./payment.services.js";
 import { NotificationServices } from "./notification.service.js";
 import { getNowScheduleClock } from "../utils/business-time.js";
 import { getEffectivePackageDurationMinutes } from "../utils/package-duration.js";
@@ -791,9 +791,11 @@ export const BookingServices = {
                 method: payment.method,
                 status: payment.status,
                 expiredAt: payment.expiredAt?.toISOString() ?? null,
-                autoSuccessAfterSeconds: isVirtualAccountMethod(payment.method) ? VA_AUTO_SUCCESS_SECONDS : null,
-                autoSuccessAt: isVirtualAccountMethod(payment.method)
-                    ? new Date(payment.createdAt.getTime() + VA_AUTO_SUCCESS_SECONDS * 1000).toISOString()
+                autoSuccessAfterSeconds: isSimulatedAutoSuccessMethod(payment.method)
+                    ? SIMULATED_PAYMENT_AUTO_SUCCESS_SECONDS
+                    : null,
+                autoSuccessAt: isSimulatedAutoSuccessMethod(payment.method)
+                    ? new Date(payment.createdAt.getTime() + SIMULATED_PAYMENT_AUTO_SUCCESS_SECONDS * 1000).toISOString()
                     : null,
                 gatewayReference: payment.gatewayReference,
                 paymentPageUrl: payment.method === "qris" ? buildQrisPaymentPageUrl(payment.id) : null,
@@ -801,6 +803,9 @@ export const BookingServices = {
             };
         });
         await NotificationServices.notifyPaymentPending(result.bookingId);
+        if (isSimulatedAutoSuccessMethod(result.method)) {
+            scheduleSimulatedPaymentSuccess(result.paymentId);
+        }
         return result;
     },
     async confirmPayment(userId, bookingId) {

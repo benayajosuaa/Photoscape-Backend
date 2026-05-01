@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { OwnerAdminServices } from '../services/owner-admin.service.js';
+import { logControllerError } from './controller-error.js';
 
 function single(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -27,7 +28,7 @@ function commonQuery(req: Request) {
 }
 
 function sendError(res: Response, error: any, fallback: string) {
-  console.error(error);
+  logControllerError(error);
   const message = error?.message ?? fallback;
   const status =
     message.includes('tidak ditemukan') ? 404 :

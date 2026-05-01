@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { AdminBookingServices, type AdminActor } from "../services/admin-booking.service.js";
+import { logControllerError } from "./controller-error.js";
 
 function getSingleValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -19,7 +20,7 @@ function getAuthenticatedActor(req: Request): AdminActor {
 }
 
 function sendError(res: Response, error: any, fallbackMessage: string) {
-  console.error(error);
+  logControllerError(error);
   const message = error?.message ?? fallbackMessage;
   const status =
     message === "Booking tidak ditemukan" || message === "Jadwal tujuan tidak ditemukan" ? 404 : 400;

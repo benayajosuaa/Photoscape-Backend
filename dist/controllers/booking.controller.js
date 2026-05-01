@@ -1,4 +1,5 @@
 import { BookingServices } from "../services/booking.service.js";
+import { logControllerError } from "./controller-error.js";
 function getSingleValue(value) {
     return Array.isArray(value) ? value[0] : value;
 }
@@ -23,7 +24,7 @@ export const BookingController = {
             });
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             return res.status(400).json({
                 message: error.message ?? "failed to load booking meta",
             });
@@ -43,7 +44,7 @@ export const BookingController = {
             });
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             return res.status(400).json({
                 message: error.message ?? "failed to load availability",
             });
@@ -59,7 +60,7 @@ export const BookingController = {
             });
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             return res.status(400).json({
                 message: error.message ?? "failed to create booking",
             });
@@ -76,7 +77,7 @@ export const BookingController = {
             });
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             const status = error.message === "Booking tidak ditemukan" ? 404 : 400;
             return res.status(status).json({
                 message: error.message ?? "failed to load booking summary",
@@ -93,7 +94,7 @@ export const BookingController = {
             });
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             return res.status(400).json({
                 message: error.message ?? "failed to load booking history",
             });
@@ -110,7 +111,7 @@ export const BookingController = {
             });
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             return res.status(400).json({
                 message: error.message ?? "failed to create payment",
             });
@@ -124,7 +125,7 @@ export const BookingController = {
             return res.status(200).send(html);
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             return res.status(400).send(`<h1>${error.message ?? "QRIS page error"}</h1>`);
         }
     },
@@ -136,7 +137,7 @@ export const BookingController = {
             return res.status(200).send(html);
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             return res.status(400).send(`<h1>${error.message ?? "QRIS confirmation error"}</h1>`);
         }
     },
@@ -151,7 +152,7 @@ export const BookingController = {
             });
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             return res.status(400).json({
                 message: error.message ?? "failed to confirm payment",
             });
@@ -168,7 +169,7 @@ export const BookingController = {
             });
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             const status = error.message === "Booking tidak ditemukan" ? 404 : 400;
             return res.status(status).json({
                 message: error.message ?? "failed to load ticket",
@@ -186,7 +187,7 @@ export const BookingController = {
             });
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             const status = error.message === "Booking tidak ditemukan" ? 404 : 400;
             return res.status(status).json({
                 message: error.message ?? "failed to send invoice",
@@ -204,7 +205,7 @@ export const BookingController = {
             });
         }
         catch (error) {
-            console.error(error);
+            logControllerError(error);
             return res.status(400).json({
                 message: error.message ?? "failed to cancel booking",
             });

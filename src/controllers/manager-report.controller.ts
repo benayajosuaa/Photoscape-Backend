@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { ManagerReportServices } from '../services/manager-report.service.js';
+import { logControllerError } from './controller-error.js';
 
 function getSingleValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -48,7 +49,7 @@ function getCommonFilters(req: Request) {
 }
 
 function sendError(res: Response, error: any, fallbackMessage: string) {
-  console.error(error);
+  logControllerError(error);
   return res.status(400).json({
     message: error?.message ?? fallbackMessage,
   });

@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { ContactServices } from "../services/contact.service.js";
+import { logControllerError } from "./controller-error.js";
 
 export const ContactController = {
   async sendMessage(req: Request, res: Response) {
@@ -21,7 +22,7 @@ export const ContactController = {
         data,
       });
     } catch (error: any) {
-      console.error(error);
+      logControllerError(error);
       return res.status(400).json({
         message: error.message ?? "Gagal mengirim pesan",
       });

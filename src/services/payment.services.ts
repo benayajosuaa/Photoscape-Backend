@@ -5,7 +5,9 @@ import { getEffectivePackageDurationMinutes } from "../utils/package-duration.js
 
 export const PENDING_BOOKING_WINDOW_MINUTES = 15;
 export const VA_AUTO_SUCCESS_SECONDS = 20;
+export const SIMULATED_PAYMENT_AUTO_SUCCESS_SECONDS = 2;
 export const PAYMENT_METHODS: PaymentMethod[] = ["qris", "bca_va", "mandiri_va", "gopay", "ovo", "cash"];
+const SIMULATED_AUTO_SUCCESS_METHODS: PaymentMethod[] = ["bca_va", "mandiri_va", "gopay", "ovo"];
 
 function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60 * 1000);
@@ -17,6 +19,10 @@ export function isPaymentMethod(value: string): value is PaymentMethod {
 
 export function isVirtualAccountMethod(value: PaymentMethod) {
   return value === "bca_va" || value === "mandiri_va";
+}
+
+export function isSimulatedAutoSuccessMethod(value: PaymentMethod) {
+  return SIMULATED_AUTO_SUCCESS_METHODS.includes(value);
 }
 
 export function buildPaymentExpiry() {
@@ -189,13 +195,13 @@ export async function finalizePaidBooking(tx: Prisma.TransactionClient, paymentI
 
 export async function settleDueVirtualAccountPayments() {
   const now = new Date();
-  const dueAt = new Date(now.getTime() - VA_AUTO_SUCCESS_SECONDS * 1000);
+  const dueAt = new Date(now.getTime() - SIMULATED_PAYMENT_AUTO_SUCCESS_SECONDS * 1000);
 
   const duePayments = await prisma.payment.findMany({
     where: {
       status: "pending",
       method: {
-        in: ["bca_va", "mandiri_va"],
+        in: SIMULATED_AUTO_SUCCESS_METHODS,
       },
       createdAt: {
         lte: dueAt,
@@ -227,6 +233,35 @@ export async function settleDueVirtualAccountPayments() {
   }
 }
 
+export function scheduleSimulatedPaymentSuccess(paymentId: string) {
+  setTimeout(async () => {
+    try {
+      const payment = await prisma.payment.findUnique({
+        where: { id: paymentId },
+        select: {
+          bookingId: true,
+          status: true,
+          method: true,
+        },
+      });
+
+      if (!payment || payment.status !== "pending" || !isSimulatedAutoSuccessMethod(payment.method)) {
+        return;
+      }
+
+      await prisma.$transaction(async tx => {
+        await finalizePaidBooking(tx, paymentId, new Date());
+      });
+
+      await NotificationServices.notifyPaymentPaid(payment.bookingId);
+    } catch (error) {
+      if (process.env.NODE_ENV !== "test") {
+        console.error("scheduleSimulatedPaymentSuccess failed", error);
+      }
+    }
+  }, SIMULATED_PAYMENT_AUTO_SUCCESS_SECONDS * 1000);
+}
+
 export async function syncBookingPayments() {
   await expireStaleBookings();
   await settleDueVirtualAccountPayments();
@@ -248,16 +283,16 @@ export function getPaymentInstructions(method: PaymentMethod) {
 
   if (method === "bca_va" || method === "mandiri_va") {
     return [
-      "Virtual account akan tersimulasi berhasil otomatis 20 detik setelah dibuat.",
-      "Cek ulang summary booking atau ticket setelah 20 detik.",
+      "Virtual account akan tersimulasi berhasil otomatis 2 detik setelah pembayaran dibuat.",
+      "Tunggu sekitar 2 detik lalu cek ulang summary booking atau ticket.",
       ...shared,
     ];
   }
 
   if (method === "gopay" || method === "ovo") {
     return [
-      "Buka aplikasi e-wallet yang dipilih.",
-      "Konfirmasi pembayaran sesuai nominal tagihan.",
+      "Pembayaran e-wallet akan tersimulasi berhasil otomatis 2 detik setelah pembayaran dibuat.",
+      "Tunggu sekitar 2 detik lalu cek ulang summary booking atau ticket.",
       ...shared,
     ];
   }
